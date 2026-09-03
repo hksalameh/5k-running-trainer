@@ -44,7 +44,7 @@ jobs:
       - name: Smoke test phone app launch
         uses: ReactiveCircus/android-emulator-runner@v2
         with:
-          api-level: 35
+          api-level: 36
           arch: x86_64
           profile: pixel_6
           disable-animations: true
@@ -53,17 +53,8 @@ jobs:
             adb logcat -c
             adb shell am start -W -n com.rakdatak.app/.MainActivity
             sleep 4
-            PID=$(adb shell pidof com.rakdatak.app | tr -d '\r')
-            if [ -z "$PID" ]; then
-              echo "Rakdatak process is not running after launch"
-              adb logcat -d -t 300
-              exit 1
-            fi
-            if adb logcat -d -t 300 | grep -E "FATAL EXCEPTION|Process: com.rakdatak.app"; then
-              echo "Crash detected after launch"
-              adb logcat -d -t 300
-              exit 1
-            fi
+            adb shell pidof com.rakdatak.app
+            adb logcat -d -t 300 | grep -E "FATAL EXCEPTION|Process: com.rakdatak.app" && exit 1 || true
 
       - name: Upload phone APK
         uses: actions/upload-artifact@v4
