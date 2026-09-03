@@ -64,17 +64,33 @@ private fun RakdatakWearApp() {
     val context = LocalContext.current
     val workoutState by WearWorkoutRepository.state.collectAsState()
     var gpsEnabled by remember { mutableStateOf(false) }
+    var permissionNotice by remember { mutableStateOf<String?>(null) }
 
-    val beginWorkout: () -> Unit = {
-        WearWorkoutService.start(context, gpsEnabled)
+    val startWithAvailablePermissions: () -> Unit = {
+        val activityGranted =
+            context.checkSelfPermission(Manifest.permission.ACTIVITY_RECOGNITION) ==
+                PackageManager.PERMISSION_GRANTED
+        if (!activityGranted) {
+            permissionNotice = "يلزم إذن النشاط حتى يستمر التمرين والشاشة مطفأة."
+        } else {
+            val locationGranted =
+                context.checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) ==
+                    PackageManager.PERMISSION_GRANTED
+            val useGps = gpsEnabled && locationGranted
+            permissionNotice = if (gpsEnabled && !locationGranted) {
+                "سيبدأ التمرين بدون GPS لأن إذن الموقع غير مفعّل."
+            } else {
+                null
+            }
+            WearWorkoutService.start(context, useGps)
+        }
     }
 
     val permissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestMultiplePermissions(),
     ) {
-        // If one sensor permission is declined, the timed workout still starts.
-        // Health Services reports only the metrics the watch is allowed to provide.
-        beginWorkout()
+        // Re-check the actual granted permissions instead of trusting the requested configuration.
+        startWithAvailablePermissions()
     }
 
     val snapshot = workoutState.snapshot
@@ -82,6 +98,7 @@ private fun RakdatakWearApp() {
         null,
         WorkoutSessionStatus.READY -> ReadyScreen(
             gpsEnabled = gpsEnabled,
+            notice = permissionNotice,
             onToggleGps = { gpsEnabled = !gpsEnabled },
             onStart = {
                 val missing = requiredExercisePermissions(gpsEnabled).filter { permission ->
@@ -89,7 +106,7 @@ private fun RakdatakWearApp() {
                 }
 
                 if (missing.isEmpty()) {
-                    beginWorkout()
+                    startWithAvailablePermissions()
                 } else {
                     permissionLauncher.launch(missing.toTypedArray())
                 }
@@ -116,6 +133,7 @@ private fun RakdatakWearApp() {
 @Composable
 private fun ReadyScreen(
     gpsEnabled: Boolean,
+    notice: String?,
     onToggleGps: () -> Unit,
     onStart: () -> Unit,
 ) {
@@ -145,6 +163,14 @@ private fun ReadyScreen(
             background = Dark,
             onClick = onToggleGps,
         )
+        notice?.let {
+            Spacer(modifier = Modifier.height(6.dp))
+            Text(
+                text = it,
+                color = SoftGray,
+                fontSize = 9.sp,
+            )
+        }
         Spacer(modifier = Modifier.height(8.dp))
         ActionChip(
             text = "ابدأ التمرين",
