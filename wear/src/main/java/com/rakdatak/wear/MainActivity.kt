@@ -21,12 +21,10 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -38,15 +36,12 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.wear.compose.material3.MaterialTheme
 import androidx.wear.compose.material3.Text
-import com.rakdatak.core.training.BaselinePlanFactory
-import com.rakdatak.core.training.WorkoutSessionEngine
 import com.rakdatak.core.training.WorkoutSessionSnapshot
 import com.rakdatak.core.training.WorkoutSessionStatus
 import com.rakdatak.core.training.model.WorkoutPhaseType
-import com.rakdatak.wear.health.WearExerciseManager
 import com.rakdatak.wear.health.WearExerciseMetrics
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.launch
+import com.rakdatak.wear.health.WearWorkoutRepository
+import com.rakdatak.wear.health.WearWorkoutService
 
 private val Orange = Color(0xFFFF6D00)
 private val Dark = Color(0xFF111111)
@@ -67,43 +62,24 @@ class MainActivity : ComponentActivity() {
 @Composable
 private fun RakdatakWearApp() {
     val context = LocalContext.current
-    val plan = remember { BaselinePlanFactory.create().first() }
-    val exerciseManager = remember { WearExerciseManager(context) }
-    val metrics by exerciseManager.metrics.collectAsState()
-    val scope = rememberCoroutineScope()
-
-    var engine by remember { mutableStateOf(WorkoutSessionEngine(plan)) }
-    var snapshot by remember { mutableStateOf(engine.snapshot()) }
+    val workoutState by WearWorkoutRepository.state.collectAsState()
     var gpsEnabled by remember { mutableStateOf(false) }
 
     val beginWorkout: () -> Unit = {
-        scope.launch {
-            exerciseManager.start(gpsEnabled = gpsEnabled)
-            engine = WorkoutSessionEngine(plan)
-            snapshot = engine.start()
-        }
+        WearWorkoutService.start(context, gpsEnabled)
     }
 
     val permissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestMultiplePermissions(),
     ) {
-        // The workout can still run as a timed workout when a sensor permission is declined.
+        // If one sensor permission is declined, the timed workout still starts.
+        // Health Services reports only the metrics the watch is allowed to provide.
         beginWorkout()
     }
 
-    LaunchedEffect(snapshot.status) {
-        if (snapshot.status == WorkoutSessionStatus.RUNNING) {
-            while (snapshot.status == WorkoutSessionStatus.RUNNING) {
-                delay(1_000)
-                snapshot = engine.tick()
-                if (snapshot.status == WorkoutSessionStatus.COMPLETED) {
-                    exerciseManager.end()
-                }
-            }
-        }
-    }
-
-    when (snapshot.status) {
+    val snapshot = workoutState.snapshot
+    when (snapshot?.status) {
+        null,
         WorkoutSessionStatus.READY -> ReadyScreen(
             gpsEnabled = gpsEnabled,
             onToggleGps = { gpsEnabled = !gpsEnabled },
@@ -123,30 +99,16 @@ private fun RakdatakWearApp() {
         WorkoutSessionStatus.RUNNING,
         WorkoutSessionStatus.PAUSED -> WorkoutScreen(
             snapshot = snapshot,
-            metrics = metrics,
-            onPauseResume = {
-                if (snapshot.status == WorkoutSessionStatus.PAUSED) {
-                    snapshot = engine.resume()
-                    scope.launch { exerciseManager.resume() }
-                } else {
-                    snapshot = engine.pause()
-                    scope.launch { exerciseManager.pause() }
-                }
-            },
-            onFinish = {
-                snapshot = engine.stop()
-                scope.launch { exerciseManager.end() }
-            },
+            metrics = workoutState.metrics,
+            onPauseResume = { WearWorkoutService.togglePause(context) },
+            onFinish = { WearWorkoutService.stop(context) },
         )
 
         WorkoutSessionStatus.COMPLETED,
         WorkoutSessionStatus.STOPPED -> SummaryScreen(
             snapshot = snapshot,
-            metrics = metrics,
-            onDone = {
-                engine = WorkoutSessionEngine(plan)
-                snapshot = engine.snapshot()
-            },
+            metrics = workoutState.metrics,
+            onDone = { WearWorkoutRepository.resetAfterSummary() },
         )
     }
 }
@@ -241,6 +203,15 @@ private fun WorkoutScreen(
             Metric(
                 value = metrics.distanceMeters?.let { "%.2f".format(it / 1_000.0) } ?: "--",
                 label = "كم",
+            )
+        }
+
+        metrics.errorMessage?.let {
+            Spacer(modifier = Modifier.height(5.dp))
+            Text(
+                text = "الحساس غير متاح، التمرين مستمر",
+                color = SoftGray,
+                fontSize = 9.sp,
             )
         }
 
@@ -348,6 +319,9 @@ private fun requiredExercisePermissions(gpsEnabled: Boolean): List<String> = bui
         add(READ_HEART_RATE)
     } else {
         add(Manifest.permission.BODY_SENSORS)
+    }
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+        add(Manifest.permission.POST_NOTIFICATIONS)
     }
     if (gpsEnabled) {
         add(Manifest.permission.ACCESS_FINE_LOCATION)
