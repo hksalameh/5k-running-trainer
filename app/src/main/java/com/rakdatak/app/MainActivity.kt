@@ -46,6 +46,7 @@ import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.rakdatak.app.feedback.PostWorkoutFeedbackScreen
 import com.rakdatak.app.profile.OnboardingScreen
 import com.rakdatak.app.profile.RunnerProfile
 import com.rakdatak.app.profile.RunnerProfileRepository
@@ -195,9 +196,10 @@ private fun RakdatakApp(
             },
         )
 
-        AppScreen.SUMMARY -> WorkoutSummaryScreen(
+        AppScreen.SUMMARY -> PostWorkoutFeedbackScreen(
+            planId = plan.id,
             snapshot = snapshot,
-            onDone = { screen = AppScreen.HOME },
+            onDone = { _, _, _ -> screen = AppScreen.HOME },
         )
     }
 }
