@@ -131,7 +131,9 @@ private fun RakdatakApp(
     progress: TrainingProgress,
     progressRepository: TrainingProgressRepository,
 ) {
-    val plan = remember { BaselinePlanFactory.create().first() }
+    val plans = remember { BaselinePlanFactory.create() }
+    val planIndex = progress.currentPlanIndex.coerceIn(0, plans.lastIndex)
+    val plan = plans[planIndex]
     val scope = rememberCoroutineScope()
     var engine by remember { mutableStateOf(WorkoutSessionEngine(plan)) }
     var snapshot by remember { mutableStateOf(engine.snapshot()) }
@@ -161,6 +163,8 @@ private fun RakdatakApp(
         AppScreen.HOME -> RakdatakHomeScreen(
             safetyReviewNeeded = profile.safetyReviewNeeded,
             progress = progress,
+            currentPlanTitle = plan.titleAr,
+            planProgress = (planIndex + 1).toFloat() / plans.size.toFloat(),
             onStartWorkout = {
                 if (!profile.safetyReviewNeeded) {
                     engine = WorkoutSessionEngine(plan)
@@ -199,7 +203,15 @@ private fun RakdatakApp(
         AppScreen.SUMMARY -> PostWorkoutFeedbackScreen(
             planId = plan.id,
             snapshot = snapshot,
-            onDone = { _, _, _ -> screen = AppScreen.HOME },
+            onDone = { _, _, decision ->
+                scope.launch {
+                    progressRepository.applyTrainingAction(
+                        action = decision.action,
+                        planCount = plans.size,
+                    )
+                    screen = AppScreen.HOME
+                }
+            },
         )
     }
 }
@@ -208,6 +220,8 @@ private fun RakdatakApp(
 private fun RakdatakHomeScreen(
     safetyReviewNeeded: Boolean,
     progress: TrainingProgress,
+    currentPlanTitle: String,
+    planProgress: Float,
     onStartWorkout: () -> Unit,
 ) {
     Surface(
@@ -231,12 +245,15 @@ private fun RakdatakHomeScreen(
                 color = RakdatakGray,
             )
 
-            GoalCard()
+            GoalCard(planProgress = planProgress)
 
             if (safetyReviewNeeded) {
                 SafetyReviewCard()
             } else {
-                NextWorkoutCard(onStartWorkout = onStartWorkout)
+                NextWorkoutCard(
+                    title = currentPlanTitle,
+                    onStartWorkout = onStartWorkout,
+                )
             }
 
             Text(
@@ -278,7 +295,7 @@ private fun RakdatakHomeScreen(
 }
 
 @Composable
-private fun GoalCard() {
+private fun GoalCard(planProgress: Float) {
     Card(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(24.dp),
@@ -311,13 +328,13 @@ private fun GoalCard() {
 
             Box(contentAlignment = Alignment.Center) {
                 CircularProgressIndicator(
-                    progress = { 0.04f },
+                    progress = { planProgress.coerceIn(0f, 1f) },
                     modifier = Modifier.size(64.dp),
                     color = RakdatakOrange,
                     trackColor = Color(0xFF333333),
                 )
                 Text(
-                    text = "ابدأ",
+                    text = "${(planProgress * 100).toInt()}%",
                     color = Color.White,
                     fontSize = 12.sp,
                 )
@@ -352,7 +369,10 @@ private fun SafetyReviewCard() {
 }
 
 @Composable
-private fun NextWorkoutCard(onStartWorkout: () -> Unit) {
+private fun NextWorkoutCard(
+    title: String,
+    onStartWorkout: () -> Unit,
+) {
     Card(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(24.dp),
@@ -375,7 +395,7 @@ private fun NextWorkoutCard(onStartWorkout: () -> Unit) {
                     )
                     Spacer(modifier = Modifier.height(4.dp))
                     Text(
-                        text = "بداية هادئة",
+                        text = title,
                         color = RakdatakBlack,
                         style = MaterialTheme.typography.titleLarge,
                     )
@@ -390,7 +410,7 @@ private fun NextWorkoutCard(onStartWorkout: () -> Unit) {
             }
 
             Text(
-                text = "إحماء خفيف ثم مشي وركض بفترات قصيرة ومريحة.",
+                text = "إحماء خفيف ثم مشي وركض حسب المرحلة المناسبة لك.",
                 color = RakdatakGray,
                 style = MaterialTheme.typography.bodyMedium,
             )
@@ -520,51 +540,6 @@ private fun WorkoutMetric(value: String, label: String) {
             color = Color(0xFFBDBDBD),
             style = MaterialTheme.typography.bodySmall,
         )
-    }
-}
-
-@Composable
-private fun WorkoutSummaryScreen(
-    snapshot: WorkoutSessionSnapshot,
-    onDone: () -> Unit,
-) {
-    Surface(
-        modifier = Modifier.fillMaxSize(),
-        color = Color.White,
-    ) {
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(24.dp),
-            verticalArrangement = Arrangement.Center,
-            horizontalAlignment = Alignment.CenterHorizontally,
-        ) {
-            Text(
-                text = if (snapshot.status == WorkoutSessionStatus.COMPLETED) "أحسنت!" else "تم حفظ تمرينك",
-                color = RakdatakBlack,
-                style = MaterialTheme.typography.headlineMedium,
-            )
-            Spacer(modifier = Modifier.height(12.dp))
-            Text(
-                text = "الوقت: ${formatTime(snapshot.totalElapsedSeconds)}",
-                color = RakdatakGray,
-                style = MaterialTheme.typography.titleMedium,
-            )
-            Text(
-                text = "نسبة الإكمال: ${(snapshot.completionRatio * 100).toInt()}%",
-                color = RakdatakGray,
-                style = MaterialTheme.typography.titleMedium,
-            )
-            Spacer(modifier = Modifier.height(24.dp))
-            Button(
-                onClick = onDone,
-                modifier = Modifier.fillMaxWidth(),
-                colors = ButtonDefaults.buttonColors(containerColor = RakdatakOrange),
-                shape = RoundedCornerShape(18.dp),
-            ) {
-                Text("تم")
-            }
-        }
     }
 }
 
