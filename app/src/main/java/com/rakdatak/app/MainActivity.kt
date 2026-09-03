@@ -457,6 +457,8 @@ private fun WorkoutScreen(
     onPauseResume: () -> Unit,
     onFinish: () -> Unit,
 ) {
+    PhoneWorkoutCoachEffect(snapshot)
+
     Surface(
         modifier = Modifier.fillMaxSize(),
         color = RakdatakBlack,
