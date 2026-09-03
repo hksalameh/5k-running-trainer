@@ -24,31 +24,39 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.Icon
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.rakdatak.app.profile.OnboardingScreen
+import com.rakdatak.app.profile.RunnerProfile
+import com.rakdatak.app.profile.RunnerProfileRepository
 import com.rakdatak.core.training.BaselinePlanFactory
 import com.rakdatak.core.training.WorkoutSessionEngine
 import com.rakdatak.core.training.WorkoutSessionSnapshot
 import com.rakdatak.core.training.WorkoutSessionStatus
 import com.rakdatak.core.training.model.WorkoutPhaseType
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.launch
 
 private val RakdatakOrange = Color(0xFFFF6D00)
 private val RakdatakBlack = Color(0xFF141414)
@@ -67,7 +75,7 @@ class MainActivity : ComponentActivity() {
         setContent {
             MaterialTheme {
                 CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Rtl) {
-                    RakdatakApp()
+                    RakdatakRoot()
                 }
             }
         }
@@ -75,7 +83,38 @@ class MainActivity : ComponentActivity() {
 }
 
 @Composable
-private fun RakdatakApp() {
+private fun RakdatakRoot() {
+    val context = LocalContext.current
+    val repository = remember { RunnerProfileRepository(context.applicationContext) }
+    val scope = rememberCoroutineScope()
+    val profile by produceState<RunnerProfile?>(initialValue = null, repository) {
+        repository.profile.collectLatest { value = it }
+    }
+
+    when {
+        profile == null -> Surface(
+            modifier = Modifier.fillMaxSize(),
+            color = Color.White,
+        ) {}
+
+        profile?.onboardingComplete != true -> OnboardingScreen(
+            onComplete = { age, environment, safetyReviewNeeded ->
+                scope.launch {
+                    repository.completeOnboarding(
+                        ageYears = age,
+                        trainingEnvironment = environment,
+                        safetyReviewNeeded = safetyReviewNeeded,
+                    )
+                }
+            },
+        )
+
+        else -> RakdatakApp(profile = profile!!)
+    }
+}
+
+@Composable
+private fun RakdatakApp(profile: RunnerProfile) {
     val plan = remember { BaselinePlanFactory.create().first() }
     var engine by remember { mutableStateOf(WorkoutSessionEngine(plan)) }
     var snapshot by remember { mutableStateOf(engine.snapshot()) }
@@ -95,10 +134,13 @@ private fun RakdatakApp() {
 
     when (screen) {
         AppScreen.HOME -> RakdatakHomeScreen(
+            safetyReviewNeeded = profile.safetyReviewNeeded,
             onStartWorkout = {
-                engine = WorkoutSessionEngine(plan)
-                snapshot = engine.start()
-                screen = AppScreen.WORKOUT
+                if (!profile.safetyReviewNeeded) {
+                    engine = WorkoutSessionEngine(plan)
+                    snapshot = engine.start()
+                    screen = AppScreen.WORKOUT
+                }
             },
         )
 
@@ -125,7 +167,10 @@ private fun RakdatakApp() {
 }
 
 @Composable
-private fun RakdatakHomeScreen(onStartWorkout: () -> Unit) {
+private fun RakdatakHomeScreen(
+    safetyReviewNeeded: Boolean,
+    onStartWorkout: () -> Unit,
+) {
     Surface(
         modifier = Modifier.fillMaxSize(),
         color = Color.White,
@@ -148,7 +193,12 @@ private fun RakdatakHomeScreen(onStartWorkout: () -> Unit) {
             )
 
             GoalCard()
-            NextWorkoutCard(onStartWorkout = onStartWorkout)
+
+            if (safetyReviewNeeded) {
+                SafetyReviewCard()
+            } else {
+                NextWorkoutCard(onStartWorkout = onStartWorkout)
+            }
 
             Text(
                 text = "تقدمك",
@@ -225,6 +275,31 @@ private fun GoalCard() {
                     fontSize = 12.sp,
                 )
             }
+        }
+    }
+}
+
+@Composable
+private fun SafetyReviewCard() {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(24.dp),
+        colors = CardDefaults.cardColors(containerColor = RakdatakSurface),
+    ) {
+        Column(
+            modifier = Modifier.padding(20.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Text(
+                text = "قبل بدء خطة الركض",
+                color = RakdatakBlack,
+                style = MaterialTheme.typography.titleLarge,
+            )
+            Text(
+                text = "بناءً على إجابتك الأولى، لن نرفع شدة التدريب الآن. راجع مختصًا قبل بدء جلسات الركض، ويمكن تحديث الحالة من الإعدادات لاحقًا.",
+                color = RakdatakGray,
+                style = MaterialTheme.typography.bodyMedium,
+            )
         }
     }
 }
