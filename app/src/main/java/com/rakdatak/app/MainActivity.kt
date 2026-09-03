@@ -49,6 +49,8 @@ import androidx.compose.ui.unit.sp
 import com.rakdatak.app.profile.OnboardingScreen
 import com.rakdatak.app.profile.RunnerProfile
 import com.rakdatak.app.profile.RunnerProfileRepository
+import com.rakdatak.app.progress.TrainingProgress
+import com.rakdatak.app.progress.TrainingProgressRepository
 import com.rakdatak.core.training.BaselinePlanFactory
 import com.rakdatak.core.training.WorkoutSessionEngine
 import com.rakdatak.core.training.WorkoutSessionSnapshot
@@ -85,10 +87,15 @@ class MainActivity : ComponentActivity() {
 @Composable
 private fun RakdatakRoot() {
     val context = LocalContext.current
-    val repository = remember { RunnerProfileRepository(context.applicationContext) }
+    val profileRepository = remember { RunnerProfileRepository(context.applicationContext) }
+    val progressRepository = remember { TrainingProgressRepository(context.applicationContext) }
     val scope = rememberCoroutineScope()
-    val profile by produceState<RunnerProfile?>(initialValue = null, repository) {
-        repository.profile.collectLatest { value = it }
+
+    val profile by produceState<RunnerProfile?>(initialValue = null, profileRepository) {
+        profileRepository.profile.collectLatest { value = it }
+    }
+    val progress by produceState(initialValue = TrainingProgress(), progressRepository) {
+        progressRepository.progress.collectLatest { value = it }
     }
 
     when {
@@ -100,7 +107,7 @@ private fun RakdatakRoot() {
         profile?.onboardingComplete != true -> OnboardingScreen(
             onComplete = { age, environment, safetyReviewNeeded ->
                 scope.launch {
-                    repository.completeOnboarding(
+                    profileRepository.completeOnboarding(
                         ageYears = age,
                         trainingEnvironment = environment,
                         safetyReviewNeeded = safetyReviewNeeded,
@@ -109,16 +116,26 @@ private fun RakdatakRoot() {
             },
         )
 
-        else -> RakdatakApp(profile = profile!!)
+        else -> RakdatakApp(
+            profile = profile!!,
+            progress = progress,
+            progressRepository = progressRepository,
+        )
     }
 }
 
 @Composable
-private fun RakdatakApp(profile: RunnerProfile) {
+private fun RakdatakApp(
+    profile: RunnerProfile,
+    progress: TrainingProgress,
+    progressRepository: TrainingProgressRepository,
+) {
     val plan = remember { BaselinePlanFactory.create().first() }
+    val scope = rememberCoroutineScope()
     var engine by remember { mutableStateOf(WorkoutSessionEngine(plan)) }
     var snapshot by remember { mutableStateOf(engine.snapshot()) }
     var screen by remember { mutableStateOf(AppScreen.HOME) }
+    var sessionRecorded by remember { mutableStateOf(false) }
 
     LaunchedEffect(screen, snapshot.status) {
         if (screen == AppScreen.WORKOUT && snapshot.status == WorkoutSessionStatus.RUNNING) {
@@ -126,6 +143,13 @@ private fun RakdatakApp(profile: RunnerProfile) {
                 delay(1_000)
                 snapshot = engine.tick()
                 if (snapshot.status == WorkoutSessionStatus.COMPLETED) {
+                    if (!sessionRecorded) {
+                        sessionRecorded = true
+                        progressRepository.recordWorkout(
+                            elapsedSeconds = snapshot.totalElapsedSeconds,
+                            completionRatio = snapshot.completionRatio,
+                        )
+                    }
                     screen = AppScreen.SUMMARY
                 }
             }
@@ -135,10 +159,12 @@ private fun RakdatakApp(profile: RunnerProfile) {
     when (screen) {
         AppScreen.HOME -> RakdatakHomeScreen(
             safetyReviewNeeded = profile.safetyReviewNeeded,
+            progress = progress,
             onStartWorkout = {
                 if (!profile.safetyReviewNeeded) {
                     engine = WorkoutSessionEngine(plan)
                     snapshot = engine.start()
+                    sessionRecorded = false
                     screen = AppScreen.WORKOUT
                 }
             },
@@ -154,7 +180,17 @@ private fun RakdatakApp(profile: RunnerProfile) {
                 }
             },
             onFinish = {
-                snapshot = engine.stop()
+                val stopped = engine.stop()
+                snapshot = stopped
+                if (!sessionRecorded) {
+                    sessionRecorded = true
+                    scope.launch {
+                        progressRepository.recordWorkout(
+                            elapsedSeconds = stopped.totalElapsedSeconds,
+                            completionRatio = stopped.completionRatio,
+                        )
+                    }
+                }
                 screen = AppScreen.SUMMARY
             },
         )
@@ -169,6 +205,7 @@ private fun RakdatakApp(profile: RunnerProfile) {
 @Composable
 private fun RakdatakHomeScreen(
     safetyReviewNeeded: Boolean,
+    progress: TrainingProgress,
     onStartWorkout: () -> Unit,
 ) {
     Surface(
@@ -212,18 +249,26 @@ private fun RakdatakHomeScreen(
             ) {
                 StatCard(
                     modifier = Modifier.weight(1f),
-                    value = "0",
-                    label = "تمارين",
+                    value = progress.completedWorkouts.toString(),
+                    label = "مكتملة",
                 )
                 StatCard(
                     modifier = Modifier.weight(1f),
-                    value = "0.0",
+                    value = "%.1f".format(progress.totalDistanceMeters / 1_000.0),
                     label = "كم",
                 )
                 StatCard(
                     modifier = Modifier.weight(1f),
-                    value = "0",
+                    value = (progress.totalSeconds / 60L).toString(),
                     label = "دقيقة",
+                )
+            }
+
+            if (progress.savedWorkouts > progress.completedWorkouts) {
+                Text(
+                    text = "محفوظ أيضًا ${progress.savedWorkouts - progress.completedWorkouts} تمرين غير مكتمل.",
+                    color = RakdatakGray,
+                    style = MaterialTheme.typography.bodySmall,
                 )
             }
         }
@@ -348,20 +393,18 @@ private fun NextWorkoutCard(onStartWorkout: () -> Unit) {
                 style = MaterialTheme.typography.bodyMedium,
             )
 
-            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(
-                        imageVector = Icons.Default.Favorite,
-                        contentDescription = null,
-                        tint = RakdatakOrange,
-                        modifier = Modifier.size(18.dp),
-                    )
-                    Text(
-                        text = "  نبض مراقب",
-                        color = RakdatakGray,
-                        style = MaterialTheme.typography.bodySmall,
-                    )
-                }
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    imageVector = Icons.Default.Favorite,
+                    contentDescription = null,
+                    tint = RakdatakOrange,
+                    modifier = Modifier.size(18.dp),
+                )
+                Text(
+                    text = "  نبض مراقب",
+                    color = RakdatakGray,
+                    style = MaterialTheme.typography.bodySmall,
+                )
             }
 
             Button(
