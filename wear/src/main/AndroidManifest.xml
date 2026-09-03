@@ -44,6 +44,11 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <service
+            android:name=".health.WearWorkoutService"
+            android:exported="false"
+            android:foregroundServiceType="health|location" />
     </application>
 
 </manifest>
