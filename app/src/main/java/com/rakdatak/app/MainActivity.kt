@@ -24,24 +24,42 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.Icon
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.ui.platform.LocalLayoutDirection
+import com.rakdatak.core.training.BaselinePlanFactory
+import com.rakdatak.core.training.WorkoutSessionEngine
+import com.rakdatak.core.training.WorkoutSessionSnapshot
+import com.rakdatak.core.training.WorkoutSessionStatus
+import com.rakdatak.core.training.model.WorkoutPhaseType
+import kotlinx.coroutines.delay
 
 private val RakdatakOrange = Color(0xFFFF6D00)
 private val RakdatakBlack = Color(0xFF141414)
 private val RakdatakGray = Color(0xFF747474)
 private val RakdatakSurface = Color(0xFFF5F5F5)
+
+private enum class AppScreen {
+    HOME,
+    WORKOUT,
+    SUMMARY,
+}
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -49,7 +67,7 @@ class MainActivity : ComponentActivity() {
         setContent {
             MaterialTheme {
                 CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Rtl) {
-                    RakdatakHomeScreen()
+                    RakdatakApp()
                 }
             }
         }
@@ -57,7 +75,57 @@ class MainActivity : ComponentActivity() {
 }
 
 @Composable
-private fun RakdatakHomeScreen() {
+private fun RakdatakApp() {
+    val plan = remember { BaselinePlanFactory.create().first() }
+    var engine by remember { mutableStateOf(WorkoutSessionEngine(plan)) }
+    var snapshot by remember { mutableStateOf(engine.snapshot()) }
+    var screen by remember { mutableStateOf(AppScreen.HOME) }
+
+    LaunchedEffect(screen, snapshot.status) {
+        if (screen == AppScreen.WORKOUT && snapshot.status == WorkoutSessionStatus.RUNNING) {
+            while (snapshot.status == WorkoutSessionStatus.RUNNING) {
+                delay(1_000)
+                snapshot = engine.tick()
+                if (snapshot.status == WorkoutSessionStatus.COMPLETED) {
+                    screen = AppScreen.SUMMARY
+                }
+            }
+        }
+    }
+
+    when (screen) {
+        AppScreen.HOME -> RakdatakHomeScreen(
+            onStartWorkout = {
+                engine = WorkoutSessionEngine(plan)
+                snapshot = engine.start()
+                screen = AppScreen.WORKOUT
+            },
+        )
+
+        AppScreen.WORKOUT -> WorkoutScreen(
+            snapshot = snapshot,
+            onPauseResume = {
+                snapshot = if (snapshot.status == WorkoutSessionStatus.PAUSED) {
+                    engine.resume()
+                } else {
+                    engine.pause()
+                }
+            },
+            onFinish = {
+                snapshot = engine.stop()
+                screen = AppScreen.SUMMARY
+            },
+        )
+
+        AppScreen.SUMMARY -> WorkoutSummaryScreen(
+            snapshot = snapshot,
+            onDone = { screen = AppScreen.HOME },
+        )
+    }
+}
+
+@Composable
+private fun RakdatakHomeScreen(onStartWorkout: () -> Unit) {
     Surface(
         modifier = Modifier.fillMaxSize(),
         color = Color.White,
@@ -80,7 +148,7 @@ private fun RakdatakHomeScreen() {
             )
 
             GoalCard()
-            NextWorkoutCard()
+            NextWorkoutCard(onStartWorkout = onStartWorkout)
 
             Text(
                 text = "تقدمك",
@@ -162,7 +230,7 @@ private fun GoalCard() {
 }
 
 @Composable
-private fun NextWorkoutCard() {
+private fun NextWorkoutCard(onStartWorkout: () -> Unit) {
     Card(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(24.dp),
@@ -222,7 +290,7 @@ private fun NextWorkoutCard() {
             }
 
             Button(
-                onClick = { },
+                onClick = onStartWorkout,
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(56.dp),
@@ -238,6 +306,143 @@ private fun NextWorkoutCard() {
                     text = "  ابدأ التمرين",
                     fontSize = 17.sp,
                 )
+            }
+        }
+    }
+}
+
+@Composable
+private fun WorkoutScreen(
+    snapshot: WorkoutSessionSnapshot,
+    onPauseResume: () -> Unit,
+    onFinish: () -> Unit,
+) {
+    Surface(
+        modifier = Modifier.fillMaxSize(),
+        color = RakdatakBlack,
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(24.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center,
+        ) {
+            Text(
+                text = phaseLabel(snapshot.currentPhase.type),
+                color = RakdatakOrange,
+                style = MaterialTheme.typography.headlineMedium,
+            )
+            Spacer(modifier = Modifier.height(12.dp))
+            Text(
+                text = formatTime(snapshot.phaseRemainingSeconds),
+                color = Color.White,
+                fontSize = 64.sp,
+            )
+            Text(
+                text = "متبقي لهذه المرحلة",
+                color = Color(0xFFBDBDBD),
+                style = MaterialTheme.typography.bodyLarge,
+            )
+
+            Spacer(modifier = Modifier.height(28.dp))
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceEvenly,
+            ) {
+                WorkoutMetric(value = formatTime(snapshot.totalElapsedSeconds), label = "الوقت")
+                WorkoutMetric(value = "--", label = "النبض")
+                WorkoutMetric(value = "--", label = "المسافة")
+            }
+
+            Spacer(modifier = Modifier.height(32.dp))
+
+            Button(
+                onClick = onPauseResume,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(64.dp),
+                shape = RoundedCornerShape(20.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = RakdatakOrange),
+            ) {
+                Text(
+                    text = if (snapshot.status == WorkoutSessionStatus.PAUSED) "متابعة" else "إيقاف مؤقت",
+                    fontSize = 18.sp,
+                )
+            }
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            OutlinedButton(
+                onClick = onFinish,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(56.dp),
+                shape = RoundedCornerShape(18.dp),
+            ) {
+                Text(text = "إنهاء التمرين", color = Color.White)
+            }
+        }
+    }
+}
+
+@Composable
+private fun WorkoutMetric(value: String, label: String) {
+    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+        Text(
+            text = value,
+            color = Color.White,
+            style = MaterialTheme.typography.titleLarge,
+        )
+        Text(
+            text = label,
+            color = Color(0xFFBDBDBD),
+            style = MaterialTheme.typography.bodySmall,
+        )
+    }
+}
+
+@Composable
+private fun WorkoutSummaryScreen(
+    snapshot: WorkoutSessionSnapshot,
+    onDone: () -> Unit,
+) {
+    Surface(
+        modifier = Modifier.fillMaxSize(),
+        color = Color.White,
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(24.dp),
+            verticalArrangement = Arrangement.Center,
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            Text(
+                text = if (snapshot.status == WorkoutSessionStatus.COMPLETED) "أحسنت!" else "تم حفظ تمرينك",
+                color = RakdatakBlack,
+                style = MaterialTheme.typography.headlineMedium,
+            )
+            Spacer(modifier = Modifier.height(12.dp))
+            Text(
+                text = "الوقت: ${formatTime(snapshot.totalElapsedSeconds)}",
+                color = RakdatakGray,
+                style = MaterialTheme.typography.titleMedium,
+            )
+            Text(
+                text = "نسبة الإكمال: ${(snapshot.completionRatio * 100).toInt()}%",
+                color = RakdatakGray,
+                style = MaterialTheme.typography.titleMedium,
+            )
+            Spacer(modifier = Modifier.height(24.dp))
+            Button(
+                onClick = onDone,
+                modifier = Modifier.fillMaxWidth(),
+                colors = ButtonDefaults.buttonColors(containerColor = RakdatakOrange),
+                shape = RoundedCornerShape(18.dp),
+            ) {
+                Text("تم")
             }
         }
     }
@@ -266,4 +471,17 @@ private fun StatCard(
             style = MaterialTheme.typography.bodySmall,
         )
     }
+}
+
+private fun phaseLabel(type: WorkoutPhaseType): String = when (type) {
+    WorkoutPhaseType.WARM_UP -> "إحماء خفيف"
+    WorkoutPhaseType.WALK -> "مشي"
+    WorkoutPhaseType.RUN -> "ركض"
+    WorkoutPhaseType.COOL_DOWN -> "تهدئة"
+}
+
+private fun formatTime(totalSeconds: Int): String {
+    val minutes = totalSeconds / 60
+    val seconds = totalSeconds % 60
+    return "%02d:%02d".format(minutes, seconds)
 }
