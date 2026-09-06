@@ -26,10 +26,10 @@ import kotlinx.coroutines.launch
 
 /**
  * Owns the active Wear OS workout while the Activity is backgrounded or the display is off.
- * The UI observes [WearWorkoutRepository] and only sends control intents to this service.
+ * It can be controlled locally from the watch or mirrored from the paired phone.
  */
 class WearWorkoutService : LifecycleService() {
-    private val plan by lazy { BaselinePlanFactory.create().first() }
+    private val plans by lazy { BaselinePlanFactory.create() }
     private val exerciseManager by lazy { WearExerciseManager(this) }
     private val livePublisher by lazy { WearLiveDataPublisher(this) }
 
@@ -59,24 +59,53 @@ class WearWorkoutService : LifecycleService() {
         when (intent?.action) {
             ACTION_START -> {
                 gpsEnabled = intent.getBooleanExtra(EXTRA_GPS_ENABLED, false)
+                val planIndex = intent.getIntExtra(EXTRA_PLAN_INDEX, 0)
+                val elapsedSeconds = intent.getIntExtra(EXTRA_ELAPSED_SECONDS, 0)
                 if (engine == null || engine?.snapshot()?.status !in ACTIVE_STATUSES) {
-                    lifecycleScope.launch { startWorkout() }
+                    lifecycleScope.launch {
+                        startWorkout(
+                            planIndex = planIndex,
+                            elapsedSeconds = elapsedSeconds,
+                        )
+                    }
                 }
             }
 
             ACTION_TOGGLE_PAUSE -> lifecycleScope.launch { togglePause() }
+            ACTION_PAUSE -> lifecycleScope.launch { pauseWorkout() }
+            ACTION_RESUME -> lifecycleScope.launch { resumeWorkout() }
             ACTION_STOP -> lifecycleScope.launch { stopWorkout() }
         }
 
         return START_NOT_STICKY
     }
 
-    private suspend fun startWorkout() {
-        startInForeground()
-
+    private suspend fun startWorkout(
+        planIndex: Int,
+        elapsedSeconds: Int,
+    ) {
+        val safePlanIndex = planIndex.coerceIn(0, plans.lastIndex)
+        val plan = plans[safePlanIndex]
         val newEngine = WorkoutSessionEngine(plan)
         engine = newEngine
-        val started = newEngine.start()
+
+        val started = if (elapsedSeconds > 0) {
+            newEngine.restore(
+                elapsedSeconds = elapsedSeconds,
+                paused = false,
+            )
+        } else {
+            newEngine.start()
+        }
+
+        if (started.status == WorkoutSessionStatus.COMPLETED) {
+            WearWorkoutRepository.start(started, gpsEnabled)
+            livePublisher.publish(started, exerciseManager.metrics.value)
+            stopSelf()
+            return
+        }
+
+        startInForeground()
         lastPhaseIndex = started.phaseIndex
         WearWorkoutRepository.start(started, gpsEnabled)
         livePublisher.publish(started, exerciseManager.metrics.value)
@@ -119,21 +148,32 @@ class WearWorkoutService : LifecycleService() {
 
     private suspend fun togglePause() {
         val activeEngine = engine ?: return
-        val updated = when (activeEngine.snapshot().status) {
-            WorkoutSessionStatus.RUNNING -> {
-                exerciseManager.pause()
-                activeEngine.pause()
-            }
-
-            WorkoutSessionStatus.PAUSED -> {
-                exerciseManager.resume()
-                activeEngine.resume()
-            }
-
-            else -> return
+        when (activeEngine.snapshot().status) {
+            WorkoutSessionStatus.RUNNING -> pauseWorkout()
+            WorkoutSessionStatus.PAUSED -> resumeWorkout()
+            else -> Unit
         }
-        WearWorkoutRepository.updateSnapshot(updated)
-        livePublisher.publish(updated, exerciseManager.metrics.value)
+    }
+
+    private suspend fun pauseWorkout() {
+        val activeEngine = engine ?: return
+        if (activeEngine.snapshot().status != WorkoutSessionStatus.RUNNING) return
+
+        exerciseManager.pause()
+        val paused = activeEngine.pause()
+        WearWorkoutRepository.updateSnapshot(paused)
+        livePublisher.publish(paused, exerciseManager.metrics.value)
+        updateNotification()
+    }
+
+    private suspend fun resumeWorkout() {
+        val activeEngine = engine ?: return
+        if (activeEngine.snapshot().status != WorkoutSessionStatus.PAUSED) return
+
+        exerciseManager.resume()
+        val resumed = activeEngine.resume()
+        WearWorkoutRepository.updateSnapshot(resumed)
+        livePublisher.publish(resumed, exerciseManager.metrics.value)
         updateNotification()
     }
 
@@ -246,18 +286,29 @@ class WearWorkoutService : LifecycleService() {
         private const val NOTIFICATION_ID = 5001
         private const val ACTION_START = "com.rakdatak.wear.action.START"
         private const val ACTION_TOGGLE_PAUSE = "com.rakdatak.wear.action.TOGGLE_PAUSE"
+        private const val ACTION_PAUSE = "com.rakdatak.wear.action.PAUSE"
+        private const val ACTION_RESUME = "com.rakdatak.wear.action.RESUME"
         private const val ACTION_STOP = "com.rakdatak.wear.action.STOP"
         private const val EXTRA_GPS_ENABLED = "gps_enabled"
+        private const val EXTRA_PLAN_INDEX = "plan_index"
+        private const val EXTRA_ELAPSED_SECONDS = "elapsed_seconds"
 
         private val ACTIVE_STATUSES = setOf(
             WorkoutSessionStatus.RUNNING,
             WorkoutSessionStatus.PAUSED,
         )
 
-        fun start(context: Context, gpsEnabled: Boolean) {
+        fun start(
+            context: Context,
+            gpsEnabled: Boolean,
+            planIndex: Int = 0,
+            elapsedSeconds: Int = 0,
+        ) {
             val intent = Intent(context, WearWorkoutService::class.java).apply {
                 action = ACTION_START
                 putExtra(EXTRA_GPS_ENABLED, gpsEnabled)
+                putExtra(EXTRA_PLAN_INDEX, planIndex)
+                putExtra(EXTRA_ELAPSED_SECONDS, elapsedSeconds)
             }
             ContextCompat.startForegroundService(context, intent)
         }
@@ -266,6 +317,22 @@ class WearWorkoutService : LifecycleService() {
             context.startService(
                 Intent(context, WearWorkoutService::class.java).apply {
                     action = ACTION_TOGGLE_PAUSE
+                }
+            )
+        }
+
+        fun pause(context: Context) {
+            context.startService(
+                Intent(context, WearWorkoutService::class.java).apply {
+                    action = ACTION_PAUSE
+                }
+            )
+        }
+
+        fun resume(context: Context) {
+            context.startService(
+                Intent(context, WearWorkoutService::class.java).apply {
+                    action = ACTION_RESUME
                 }
             )
         }
