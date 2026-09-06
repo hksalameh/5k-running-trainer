@@ -47,4 +47,33 @@ class WorkoutSessionEngineTest {
         engine.tick(1)
         assertEquals(2, engine.snapshot().totalElapsedSeconds)
     }
+
+    @Test
+    fun restoreReconstructsPhaseAndPausedState() {
+        val engine = WorkoutSessionEngine(plan)
+
+        val restored = engine.restore(
+            elapsedSeconds = 4,
+            paused = true,
+        )
+
+        assertEquals(WorkoutSessionStatus.PAUSED, restored.status)
+        assertEquals(WorkoutPhaseType.RUN, restored.currentPhase.type)
+        assertEquals(1, restored.phaseRemainingSeconds)
+        assertEquals(4, restored.totalElapsedSeconds)
+    }
+
+    @Test
+    fun restoreAtOrBeyondPlanDurationCompletesSafely() {
+        val engine = WorkoutSessionEngine(plan)
+
+        val restored = engine.restore(
+            elapsedSeconds = 999,
+            paused = true,
+        )
+
+        assertEquals(WorkoutSessionStatus.COMPLETED, restored.status)
+        assertEquals(7, restored.totalElapsedSeconds)
+        assertEquals(1.0, restored.completionRatio, 0.0001)
+    }
 }
