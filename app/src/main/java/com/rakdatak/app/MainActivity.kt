@@ -1,7 +1,9 @@
 package com.rakdatak.app
 
 import android.os.Bundle
+import android.os.SystemClock
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -63,6 +65,8 @@ import com.rakdatak.app.progress.TrainingProgressRepository
 import com.rakdatak.app.settings.AppSettings
 import com.rakdatak.app.settings.AppSettingsRepository
 import com.rakdatak.app.settings.SettingsScreen
+import com.rakdatak.app.workout.ActiveWorkoutRepository
+import com.rakdatak.app.workout.rememberPhoneWorkoutMetrics
 import com.rakdatak.core.training.BaselinePlanFactory
 import com.rakdatak.core.training.WorkoutSessionEngine
 import com.rakdatak.core.training.WorkoutSessionSnapshot
@@ -103,6 +107,7 @@ private fun RakdatakRoot() {
     val profileRepository = remember { RunnerProfileRepository(context.applicationContext) }
     val progressRepository = remember { TrainingProgressRepository(context.applicationContext) }
     val settingsRepository = remember { AppSettingsRepository(context.applicationContext) }
+    val activeWorkoutRepository = remember { ActiveWorkoutRepository(context.applicationContext) }
     val scope = rememberCoroutineScope()
 
     val profile by produceState<RunnerProfile?>(initialValue = null, profileRepository) {
@@ -139,6 +144,7 @@ private fun RakdatakRoot() {
             progressRepository = progressRepository,
             settings = settings,
             settingsRepository = settingsRepository,
+            activeWorkoutRepository = activeWorkoutRepository,
         )
     }
 }
@@ -150,29 +156,62 @@ private fun RakdatakApp(
     progressRepository: TrainingProgressRepository,
     settings: AppSettings,
     settingsRepository: AppSettingsRepository,
+    activeWorkoutRepository: ActiveWorkoutRepository,
 ) {
     val plans = remember { BaselinePlanFactory.create() }
     val planIndex = progress.currentPlanIndex.coerceIn(0, plans.lastIndex)
     val plan = plans[planIndex]
     val scope = rememberCoroutineScope()
-    var engine by remember { mutableStateOf(WorkoutSessionEngine(plan)) }
-    var snapshot by remember { mutableStateOf(engine.snapshot()) }
+
+    val restoredWorkout = remember { activeWorkoutRepository.load() }
+    val initialEngine = remember {
+        WorkoutSessionEngine(plan).also { restoredEngine ->
+            restoredWorkout?.let { saved ->
+                // A recovered process starts paused rather than guessing how long the user kept
+                // exercising while Android had the process stopped.
+                restoredEngine.restore(
+                    elapsedSeconds = saved.elapsedSeconds,
+                    paused = true,
+                )
+            }
+        }
+    }
+
+    var engine by remember { mutableStateOf(initialEngine) }
+    var snapshot by remember { mutableStateOf(initialEngine.snapshot()) }
+    var distanceMeters by remember {
+        mutableStateOf(restoredWorkout?.distanceMeters?.coerceAtLeast(0.0) ?: 0.0)
+    }
     var screen by remember { mutableStateOf(AppScreen.HOME) }
     var sessionRecorded by remember { mutableStateOf(false) }
 
+    val hasActiveWorkout = snapshot.status == WorkoutSessionStatus.RUNNING ||
+        snapshot.status == WorkoutSessionStatus.PAUSED
+
     LaunchedEffect(screen, snapshot.status) {
         if (screen == AppScreen.WORKOUT && snapshot.status == WorkoutSessionStatus.RUNNING) {
-            while (snapshot.status == WorkoutSessionStatus.RUNNING) {
-                delay(1_000)
-                snapshot = engine.tick()
+            var lastTickRealtime = SystemClock.elapsedRealtime()
+
+            while (screen == AppScreen.WORKOUT && snapshot.status == WorkoutSessionStatus.RUNNING) {
+                delay(250)
+                val now = SystemClock.elapsedRealtime()
+                val elapsedWholeSeconds = ((now - lastTickRealtime) / 1_000L).toInt()
+                if (elapsedWholeSeconds <= 0) continue
+
+                lastTickRealtime += elapsedWholeSeconds * 1_000L
+                snapshot = engine.tick(elapsedWholeSeconds)
+                activeWorkoutRepository.save(snapshot, distanceMeters)
+
                 if (snapshot.status == WorkoutSessionStatus.COMPLETED) {
                     if (!sessionRecorded) {
                         sessionRecorded = true
                         progressRepository.recordWorkout(
                             elapsedSeconds = snapshot.totalElapsedSeconds,
                             completionRatio = snapshot.completionRatio,
+                            distanceMeters = distanceMeters,
                         )
                     }
+                    activeWorkoutRepository.clear()
                     screen = AppScreen.SUMMARY
                 }
             }
@@ -185,28 +224,54 @@ private fun RakdatakApp(
             progress = progress,
             currentPlanTitle = plan.titleAr,
             planProgress = (planIndex + 1).toFloat() / plans.size.toFloat(),
+            activeWorkout = snapshot.takeIf { hasActiveWorkout },
+            activeDistanceMeters = distanceMeters,
             onStartWorkout = {
                 if (!profile.safetyReviewNeeded) {
                     engine = WorkoutSessionEngine(plan)
                     snapshot = engine.start()
+                    distanceMeters = 0.0
                     sessionRecorded = false
+                    activeWorkoutRepository.save(snapshot, distanceMeters)
                     screen = AppScreen.WORKOUT
                 }
+            },
+            onResumeWorkout = {
+                snapshot = if (snapshot.status == WorkoutSessionStatus.PAUSED) {
+                    engine.resume()
+                } else {
+                    snapshot
+                }
+                activeWorkoutRepository.save(snapshot, distanceMeters)
+                screen = AppScreen.WORKOUT
             },
             onOpenSettings = { screen = AppScreen.SETTINGS },
         )
 
         AppScreen.WORKOUT -> WorkoutScreen(
             snapshot = snapshot,
+            initialDistanceMeters = distanceMeters,
             soundCuesEnabled = settings.soundCuesEnabled,
             vibrationEnabled = settings.vibrationEnabled,
             keepScreenOn = settings.keepScreenOnDuringWorkout,
+            onDistanceChanged = { updatedDistance ->
+                distanceMeters = updatedDistance
+                activeWorkoutRepository.save(snapshot, updatedDistance)
+            },
             onPauseResume = {
                 snapshot = if (snapshot.status == WorkoutSessionStatus.PAUSED) {
                     engine.resume()
                 } else {
                     engine.pause()
                 }
+                activeWorkoutRepository.save(snapshot, distanceMeters)
+            },
+            onBackToHome = {
+                if (snapshot.status == WorkoutSessionStatus.RUNNING) {
+                    snapshot = engine.pause()
+                }
+                activeWorkoutRepository.save(snapshot, distanceMeters)
+                screen = AppScreen.HOME
             },
             onFinish = {
                 val stopped = engine.stop()
@@ -217,10 +282,13 @@ private fun RakdatakApp(
                         progressRepository.recordWorkout(
                             elapsedSeconds = stopped.totalElapsedSeconds,
                             completionRatio = stopped.completionRatio,
+                            distanceMeters = distanceMeters,
                         )
                     }
                 }
-                screen = AppScreen.SUMMARY
+                activeWorkoutRepository.clear()
+                // Manual stop returns directly home. Feedback never blocks leaving a workout.
+                screen = AppScreen.HOME
             },
         )
 
@@ -261,7 +329,10 @@ private fun RakdatakHomeScreen(
     progress: TrainingProgress,
     currentPlanTitle: String,
     planProgress: Float,
+    activeWorkout: WorkoutSessionSnapshot?,
+    activeDistanceMeters: Double,
     onStartWorkout: () -> Unit,
+    onResumeWorkout: () -> Unit,
     onOpenSettings: () -> Unit,
 ) {
     Surface(
@@ -307,6 +378,12 @@ private fun RakdatakHomeScreen(
 
             if (safetyReviewNeeded) {
                 SafetyReviewCard()
+            } else if (activeWorkout != null) {
+                ActiveWorkoutCard(
+                    snapshot = activeWorkout,
+                    distanceMeters = activeDistanceMeters,
+                    onResumeWorkout = onResumeWorkout,
+                )
             } else {
                 NextWorkoutCard(
                     title = currentPlanTitle,
@@ -429,6 +506,55 @@ private fun SafetyReviewCard() {
 }
 
 @Composable
+private fun ActiveWorkoutCard(
+    snapshot: WorkoutSessionSnapshot,
+    distanceMeters: Double,
+    onResumeWorkout: () -> Unit,
+) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(24.dp),
+        colors = CardDefaults.cardColors(containerColor = Color(0xFFFFF3E8)),
+    ) {
+        Column(
+            modifier = Modifier.padding(20.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            Text(
+                text = "لديك تمرين محفوظ",
+                color = RakdatakBlack,
+                style = MaterialTheme.typography.titleLarge,
+            )
+            Text(
+                text = "${phaseLabel(snapshot.currentPhase.type)} • ${formatTime(snapshot.totalElapsedSeconds)} • ${formatDistance(distanceMeters)}",
+                color = RakdatakGray,
+                style = MaterialTheme.typography.bodyMedium,
+            )
+            Text(
+                text = "تم إيقافه مؤقتًا حتى تقرر المتابعة.",
+                color = RakdatakGray,
+                style = MaterialTheme.typography.bodySmall,
+            )
+            Button(
+                onClick = onResumeWorkout,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(56.dp),
+                shape = RoundedCornerShape(18.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = RakdatakOrange),
+            ) {
+                Icon(
+                    imageVector = Icons.Default.PlayArrow,
+                    contentDescription = null,
+                    modifier = Modifier.size(24.dp),
+                )
+                Text("  متابعة التمرين", fontSize = 17.sp)
+            }
+        }
+    }
+}
+
+@Composable
 private fun NextWorkoutCard(
     title: String,
     onStartWorkout: () -> Unit,
@@ -483,7 +609,7 @@ private fun NextWorkoutCard(
                     modifier = Modifier.size(18.dp),
                 )
                 Text(
-                    text = "  نبض مراقب",
+                    text = "  النبض يظهر من الساعة عند توفرها",
                     color = RakdatakGray,
                     style = MaterialTheme.typography.bodySmall,
                 )
@@ -514,16 +640,25 @@ private fun NextWorkoutCard(
 @Composable
 private fun WorkoutScreen(
     snapshot: WorkoutSessionSnapshot,
+    initialDistanceMeters: Double,
     soundCuesEnabled: Boolean,
     vibrationEnabled: Boolean,
     keepScreenOn: Boolean,
+    onDistanceChanged: (Double) -> Unit,
     onPauseResume: () -> Unit,
+    onBackToHome: () -> Unit,
     onFinish: () -> Unit,
 ) {
     PhoneWorkoutCoachEffect(
         snapshot = snapshot,
         soundCuesEnabled = soundCuesEnabled,
         vibrationEnabled = vibrationEnabled,
+    )
+
+    val metrics = rememberPhoneWorkoutMetrics(
+        active = snapshot.status == WorkoutSessionStatus.RUNNING,
+        initialDistanceMeters = initialDistanceMeters,
+        onDistanceChanged = onDistanceChanged,
     )
 
     val view = LocalView.current
@@ -533,13 +668,15 @@ private fun WorkoutScreen(
         onDispose { view.keepScreenOn = previousValue }
     }
 
+    BackHandler(onBack = onBackToHome)
+
     var showFinishConfirmation by remember { mutableStateOf(false) }
 
     if (showFinishConfirmation) {
         AlertDialog(
             onDismissRequest = { showFinishConfirmation = false },
             title = { Text("إنهاء التمرين؟") },
-            text = { Text("سيتم حفظ الوقت الذي أنجزته ويمكنك العودة للرئيسية بدون تعبئة أي تقييم.") },
+            text = { Text("سيتم حفظ الوقت والمسافة التي أنجزتها ثم العودة للرئيسية مباشرة.") },
             confirmButton = {
                 TextButton(
                     onClick = {
@@ -594,10 +731,21 @@ private fun WorkoutScreen(
             ) {
                 WorkoutMetric(value = formatTime(snapshot.totalElapsedSeconds), label = "الوقت")
                 WorkoutMetric(value = "—", label = "النبض")
-                WorkoutMetric(value = "—", label = "المسافة")
+                WorkoutMetric(value = formatDistance(metrics.distanceMeters), label = "المسافة")
             }
 
-            Spacer(modifier = Modifier.height(32.dp))
+            Spacer(modifier = Modifier.height(10.dp))
+            Text(
+                text = when {
+                    !metrics.locationPermissionGranted -> "فعّل إذن الموقع لحساب المسافة أثناء الركض"
+                    !metrics.gpsAvailable -> "GPS غير متاح حاليًا • النبض سيظهر عند ربط الساعة"
+                    else -> "المسافة عبر GPS • النبض سيظهر عند ربط الساعة"
+                },
+                color = Color(0xFF9E9E9E),
+                style = MaterialTheme.typography.bodySmall,
+            )
+
+            Spacer(modifier = Modifier.height(24.dp))
 
             Button(
                 onClick = onPauseResume,
@@ -681,3 +829,6 @@ private fun formatTime(totalSeconds: Int): String {
     val seconds = totalSeconds % 60
     return "%02d:%02d".format(minutes, seconds)
 }
+
+private fun formatDistance(distanceMeters: Double): String =
+    "%.2f كم".format(distanceMeters.coerceAtLeast(0.0) / 1_000.0)
