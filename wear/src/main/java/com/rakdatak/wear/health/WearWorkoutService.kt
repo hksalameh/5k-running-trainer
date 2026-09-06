@@ -31,6 +31,7 @@ import kotlinx.coroutines.launch
 class WearWorkoutService : LifecycleService() {
     private val plan by lazy { BaselinePlanFactory.create().first() }
     private val exerciseManager by lazy { WearExerciseManager(this) }
+    private val livePublisher by lazy { WearLiveDataPublisher(this) }
 
     private var engine: WorkoutSessionEngine? = null
     private var tickerJob: Job? = null
@@ -44,6 +45,10 @@ class WearWorkoutService : LifecycleService() {
         metricsJob = lifecycleScope.launch {
             exerciseManager.metrics.collectLatest { metrics ->
                 WearWorkoutRepository.updateMetrics(metrics)
+                livePublisher.publish(
+                    snapshot = WearWorkoutRepository.state.value.snapshot,
+                    metrics = metrics,
+                )
             }
         }
     }
@@ -74,6 +79,7 @@ class WearWorkoutService : LifecycleService() {
         val started = newEngine.start()
         lastPhaseIndex = started.phaseIndex
         WearWorkoutRepository.start(started, gpsEnabled)
+        livePublisher.publish(started, exerciseManager.metrics.value)
 
         // A timed workout remains usable even if Health Services or one sensor is unavailable.
         exerciseManager.start(gpsEnabled = gpsEnabled)
@@ -92,6 +98,7 @@ class WearWorkoutService : LifecycleService() {
 
                 val after = activeEngine.tick()
                 WearWorkoutRepository.updateSnapshot(after)
+                livePublisher.publish(after, exerciseManager.metrics.value)
 
                 if (after.phaseIndex != lastPhaseIndex) {
                     lastPhaseIndex = after.phaseIndex
@@ -101,6 +108,7 @@ class WearWorkoutService : LifecycleService() {
 
                 if (after.status == WorkoutSessionStatus.COMPLETED) {
                     exerciseManager.end()
+                    livePublisher.publish(after, exerciseManager.metrics.value)
                     vibrateFinished()
                     stopForegroundAndSelf()
                     break
@@ -111,19 +119,21 @@ class WearWorkoutService : LifecycleService() {
 
     private suspend fun togglePause() {
         val activeEngine = engine ?: return
-        when (activeEngine.snapshot().status) {
+        val updated = when (activeEngine.snapshot().status) {
             WorkoutSessionStatus.RUNNING -> {
-                WearWorkoutRepository.updateSnapshot(activeEngine.pause())
                 exerciseManager.pause()
+                activeEngine.pause()
             }
 
             WorkoutSessionStatus.PAUSED -> {
-                WearWorkoutRepository.updateSnapshot(activeEngine.resume())
                 exerciseManager.resume()
+                activeEngine.resume()
             }
 
             else -> return
         }
+        WearWorkoutRepository.updateSnapshot(updated)
+        livePublisher.publish(updated, exerciseManager.metrics.value)
         updateNotification()
     }
 
@@ -132,6 +142,7 @@ class WearWorkoutService : LifecycleService() {
         val stopped = activeEngine.stop()
         WearWorkoutRepository.updateSnapshot(stopped)
         exerciseManager.end()
+        livePublisher.publish(stopped, exerciseManager.metrics.value)
         vibrateFinished()
         stopForegroundAndSelf()
     }
