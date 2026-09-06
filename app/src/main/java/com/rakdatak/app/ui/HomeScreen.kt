@@ -27,6 +27,7 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -55,6 +56,7 @@ fun RakdatakHomeScreen(
     activeDistanceMeters: Double,
     onStartWorkout: () -> Unit,
     onResumeWorkout: () -> Unit,
+    onOpenHistory: () -> Unit,
     onOpenSettings: () -> Unit,
 ) {
     val watch = rememberWearLiveMetrics()
@@ -147,6 +149,16 @@ fun RakdatakHomeScreen(
                     value = (progress.totalSeconds / 60L).toString(),
                     label = "دقيقة",
                 )
+            }
+
+            OutlinedButton(
+                onClick = onOpenHistory,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(52.dp),
+                shape = RoundedCornerShape(18.dp),
+            ) {
+                Text("سجل التمارين", color = Black)
             }
 
             if (progress.savedWorkouts > progress.completedWorkouts) {
