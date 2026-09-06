@@ -11,8 +11,8 @@ android {
         applicationId = "com.rakdatak.app"
         minSdk = 28
         targetSdk = 37
-        versionCode = 3
-        versionName = "0.3.0"
+        versionCode = 4
+        versionName = "0.4.0"
     }
 
     buildFeatures {
@@ -40,4 +40,5 @@ dependencies {
     implementation("androidx.datastore:datastore-preferences:1.2.1")
     implementation("androidx.health.connect:connect-client:1.1.0")
     implementation("androidx.work:work-runtime:2.11.2")
+    implementation("com.google.android.gms:play-services-wearable:18.2.0")
 }
