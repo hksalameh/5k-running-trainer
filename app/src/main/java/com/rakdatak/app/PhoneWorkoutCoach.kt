@@ -73,12 +73,16 @@ class PhoneWorkoutCoach(context: Context) : TextToSpeech.OnInitListener, AutoClo
             result != TextToSpeech.LANG_NOT_SUPPORTED
     }
 
-    fun onSnapshot(snapshot: WorkoutSessionSnapshot) {
+    fun onSnapshot(
+        snapshot: WorkoutSessionSnapshot,
+        soundCuesEnabled: Boolean,
+        vibrationEnabled: Boolean,
+    ) {
         if (snapshot.status == WorkoutSessionStatus.COMPLETED) {
             if (!completionAnnounced) {
                 completionAnnounced = true
-                vibrateFinished()
-                speak("أحسنت، انتهى التمرين")
+                if (vibrationEnabled) vibrateFinished()
+                if (soundCuesEnabled) speak("أحسنت، انتهى التمرين")
             }
             return
         }
@@ -89,13 +93,13 @@ class PhoneWorkoutCoach(context: Context) : TextToSpeech.OnInitListener, AutoClo
             val isFirstPhase = lastPhaseIndex == -1
             lastPhaseIndex = snapshot.phaseIndex
             tenSecondCuePhase = -1
-            if (!isFirstPhase) vibrateTransition()
-            speak(phasePrompt(snapshot.currentPhase.type))
+            if (!isFirstPhase && vibrationEnabled) vibrateTransition()
+            if (soundCuesEnabled) speak(phasePrompt(snapshot.currentPhase.type))
         }
 
         if (snapshot.phaseRemainingSeconds == 10 && tenSecondCuePhase != snapshot.phaseIndex) {
             tenSecondCuePhase = snapshot.phaseIndex
-            speak("باقي عشر ثواني")
+            if (soundCuesEnabled) speak("باقي عشر ثواني")
         }
     }
 
@@ -141,7 +145,11 @@ class PhoneWorkoutCoach(context: Context) : TextToSpeech.OnInitListener, AutoClo
 }
 
 @Composable
-fun PhoneWorkoutCoachEffect(snapshot: WorkoutSessionSnapshot) {
+fun PhoneWorkoutCoachEffect(
+    snapshot: WorkoutSessionSnapshot,
+    soundCuesEnabled: Boolean,
+    vibrationEnabled: Boolean,
+) {
     val context = LocalContext.current
     val coach = remember { PhoneWorkoutCoach(context) }
 
@@ -153,7 +161,13 @@ fun PhoneWorkoutCoachEffect(snapshot: WorkoutSessionSnapshot) {
         snapshot.status,
         snapshot.phaseIndex,
         snapshot.phaseRemainingSeconds,
+        soundCuesEnabled,
+        vibrationEnabled,
     ) {
-        coach.onSnapshot(snapshot)
+        coach.onSnapshot(
+            snapshot = snapshot,
+            soundCuesEnabled = soundCuesEnabled,
+            vibrationEnabled = vibrationEnabled,
+        )
     }
 }
