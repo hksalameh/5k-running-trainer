@@ -31,24 +31,34 @@ import kotlinx.coroutines.launch
 class WearWorkoutService : LifecycleService() {
     private val plans by lazy { BaselinePlanFactory.create() }
     private val exerciseManager by lazy { WearExerciseManager(this) }
+    private val directHeartRate by lazy { WearHeartRateSensor(this) }
     private val livePublisher by lazy { WearLiveDataPublisher(this) }
 
     private var engine: WorkoutSessionEngine? = null
     private var tickerJob: Job? = null
     private var metricsJob: Job? = null
+    private var heartRateJob: Job? = null
     private var gpsEnabled: Boolean = false
     private var lastPhaseIndex: Int = -1
+    private var healthMetrics = WearExerciseMetrics()
+    private var fallbackHeartRateBpm: Double? = null
+    private var fallbackHeartRateAvailable = false
 
     override fun onCreate() {
         super.onCreate()
         createNotificationChannel()
+
         metricsJob = lifecycleScope.launch {
             exerciseManager.metrics.collectLatest { metrics ->
-                WearWorkoutRepository.updateMetrics(metrics)
-                livePublisher.publish(
-                    snapshot = WearWorkoutRepository.state.value.snapshot,
-                    metrics = metrics,
-                )
+                healthMetrics = metrics
+                publishCombinedMetrics()
+            }
+        }
+
+        heartRateJob = lifecycleScope.launch {
+            directHeartRate.heartRateBpm.collectLatest { heartRate ->
+                fallbackHeartRateBpm = heartRate
+                publishCombinedMetrics()
             }
         }
     }
@@ -100,7 +110,7 @@ class WearWorkoutService : LifecycleService() {
 
         if (started.status == WorkoutSessionStatus.COMPLETED) {
             WearWorkoutRepository.start(started, gpsEnabled)
-            livePublisher.publish(started, exerciseManager.metrics.value)
+            livePublisher.publish(started, combinedMetrics())
             stopSelf()
             return
         }
@@ -108,10 +118,13 @@ class WearWorkoutService : LifecycleService() {
         startInForeground()
         lastPhaseIndex = started.phaseIndex
         WearWorkoutRepository.start(started, gpsEnabled)
-        livePublisher.publish(started, exerciseManager.metrics.value)
 
-        // A timed workout remains usable even if Health Services or one sensor is unavailable.
+        // Start a direct heart-rate listener as a fallback. Health Services remains preferred when
+        // it provides heart-rate data, but this keeps compatible watches useful if it cannot.
+        fallbackHeartRateAvailable = directHeartRate.start()
         exerciseManager.start(gpsEnabled = gpsEnabled)
+        publishCombinedMetrics()
+
         vibrateTransition()
         beginTicker()
     }
@@ -127,7 +140,7 @@ class WearWorkoutService : LifecycleService() {
 
                 val after = activeEngine.tick()
                 WearWorkoutRepository.updateSnapshot(after)
-                livePublisher.publish(after, exerciseManager.metrics.value)
+                livePublisher.publish(after, combinedMetrics())
 
                 if (after.phaseIndex != lastPhaseIndex) {
                     lastPhaseIndex = after.phaseIndex
@@ -136,8 +149,9 @@ class WearWorkoutService : LifecycleService() {
                 }
 
                 if (after.status == WorkoutSessionStatus.COMPLETED) {
+                    directHeartRate.stop()
                     exerciseManager.end()
-                    livePublisher.publish(after, exerciseManager.metrics.value)
+                    publishCombinedMetrics()
                     vibrateFinished()
                     stopForegroundAndSelf()
                     break
@@ -159,10 +173,11 @@ class WearWorkoutService : LifecycleService() {
         val activeEngine = engine ?: return
         if (activeEngine.snapshot().status != WorkoutSessionStatus.RUNNING) return
 
+        directHeartRate.stop()
         exerciseManager.pause()
         val paused = activeEngine.pause()
         WearWorkoutRepository.updateSnapshot(paused)
-        livePublisher.publish(paused, exerciseManager.metrics.value)
+        livePublisher.publish(paused, combinedMetrics())
         updateNotification()
     }
 
@@ -170,10 +185,11 @@ class WearWorkoutService : LifecycleService() {
         val activeEngine = engine ?: return
         if (activeEngine.snapshot().status != WorkoutSessionStatus.PAUSED) return
 
+        fallbackHeartRateAvailable = directHeartRate.start()
         exerciseManager.resume()
         val resumed = activeEngine.resume()
         WearWorkoutRepository.updateSnapshot(resumed)
-        livePublisher.publish(resumed, exerciseManager.metrics.value)
+        livePublisher.publish(resumed, combinedMetrics())
         updateNotification()
     }
 
@@ -181,10 +197,32 @@ class WearWorkoutService : LifecycleService() {
         val activeEngine = engine ?: return stopForegroundAndSelf()
         val stopped = activeEngine.stop()
         WearWorkoutRepository.updateSnapshot(stopped)
+        directHeartRate.stop()
         exerciseManager.end()
-        livePublisher.publish(stopped, exerciseManager.metrics.value)
+        publishCombinedMetrics()
         vibrateFinished()
         stopForegroundAndSelf()
+    }
+
+    private fun combinedMetrics(): WearExerciseMetrics {
+        val fallbackHeartRate = fallbackHeartRateBpm
+        val heartRate = healthMetrics.heartRateBpm ?: fallbackHeartRate
+        val healthError = healthMetrics.errorMessage
+
+        return healthMetrics.copy(
+            heartRateBpm = heartRate,
+            heartRateAvailable = healthMetrics.heartRateAvailable || fallbackHeartRateAvailable,
+            errorMessage = if (fallbackHeartRate != null && !gpsEnabled) null else healthError,
+        )
+    }
+
+    private fun publishCombinedMetrics() {
+        val metrics = combinedMetrics()
+        WearWorkoutRepository.updateMetrics(metrics)
+        livePublisher.publish(
+            snapshot = WearWorkoutRepository.state.value.snapshot,
+            metrics = metrics,
+        )
     }
 
     private fun startInForeground() {
@@ -276,8 +314,10 @@ class WearWorkoutService : LifecycleService() {
     }
 
     override fun onDestroy() {
+        directHeartRate.stop()
         tickerJob?.cancel()
         metricsJob?.cancel()
+        heartRateJob?.cancel()
         super.onDestroy()
     }
 
