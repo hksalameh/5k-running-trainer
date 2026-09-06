@@ -11,8 +11,8 @@ android {
         applicationId = "com.rakdatak.app"
         minSdk = 30
         targetSdk = 37
-        versionCode = 10004
-        versionName = "0.4.0"
+        versionCode = 10005
+        versionName = "0.4.1"
     }
 
     buildFeatures {
