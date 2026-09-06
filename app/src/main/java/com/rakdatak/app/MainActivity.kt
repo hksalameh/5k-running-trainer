@@ -4,6 +4,7 @@ import android.os.Bundle
 import android.os.SystemClock
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
@@ -16,12 +17,13 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.unit.LayoutDirection
 import com.rakdatak.app.feedback.PostWorkoutFeedbackScreen
+import com.rakdatak.app.history.WorkoutHistoryRepository
+import com.rakdatak.app.history.WorkoutHistoryScreen
 import com.rakdatak.app.profile.OnboardingScreen
 import com.rakdatak.app.profile.RunnerProfile
 import com.rakdatak.app.profile.RunnerProfileRepository
@@ -49,6 +51,7 @@ private enum class AppScreen {
     HOME,
     WORKOUT,
     SUMMARY,
+    HISTORY,
     SETTINGS,
     SCHEDULE,
 }
@@ -73,6 +76,7 @@ private fun RakdatakRoot() {
     val progressRepository = remember { TrainingProgressRepository(context.applicationContext) }
     val settingsRepository = remember { AppSettingsRepository(context.applicationContext) }
     val activeWorkoutRepository = remember { ActiveWorkoutRepository(context.applicationContext) }
+    val historyRepository = remember { WorkoutHistoryRepository(context.applicationContext) }
     val scheduleRepository = remember { TrainingScheduleRepository(context.applicationContext) }
     val reminderScheduler = remember { TrainingReminderScheduler(context.applicationContext) }
     val scope = rememberCoroutineScope()
@@ -118,6 +122,7 @@ private fun RakdatakRoot() {
             settings = settings,
             settingsRepository = settingsRepository,
             activeWorkoutRepository = activeWorkoutRepository,
+            historyRepository = historyRepository,
             trainingSchedule = trainingSchedule,
             scheduleRepository = scheduleRepository,
             reminderScheduler = reminderScheduler,
@@ -133,6 +138,7 @@ private fun RakdatakApp(
     settings: AppSettings,
     settingsRepository: AppSettingsRepository,
     activeWorkoutRepository: ActiveWorkoutRepository,
+    historyRepository: WorkoutHistoryRepository,
     trainingSchedule: UserTrainingSchedule,
     scheduleRepository: TrainingScheduleRepository,
     reminderScheduler: TrainingReminderScheduler,
@@ -164,6 +170,9 @@ private fun RakdatakApp(
 
     val hasActiveWorkout = snapshot.status == WorkoutSessionStatus.RUNNING ||
         snapshot.status == WorkoutSessionStatus.PAUSED
+    val historyEntries = remember(screen, progress.savedWorkouts) {
+        if (screen == AppScreen.HISTORY) historyRepository.load() else emptyList()
+    }
 
     LaunchedEffect(screen, snapshot.status) {
         if (screen == AppScreen.WORKOUT && snapshot.status == WorkoutSessionStatus.RUNNING) {
@@ -183,6 +192,11 @@ private fun RakdatakApp(
                     if (!sessionRecorded) {
                         sessionRecorded = true
                         progressRepository.recordWorkout(
+                            elapsedSeconds = snapshot.totalElapsedSeconds,
+                            completionRatio = snapshot.completionRatio,
+                            distanceMeters = distanceMeters,
+                        )
+                        historyRepository.recordWorkout(
                             elapsedSeconds = snapshot.totalElapsedSeconds,
                             completionRatio = snapshot.completionRatio,
                             distanceMeters = distanceMeters,
@@ -222,6 +236,7 @@ private fun RakdatakApp(
                 activeWorkoutRepository.save(snapshot, distanceMeters)
                 screen = AppScreen.WORKOUT
             },
+            onOpenHistory = { screen = AppScreen.HISTORY },
             onOpenSettings = { screen = AppScreen.SETTINGS },
         )
 
@@ -257,6 +272,11 @@ private fun RakdatakApp(
                 snapshot = stopped
                 if (!sessionRecorded) {
                     sessionRecorded = true
+                    historyRepository.recordWorkout(
+                        elapsedSeconds = stopped.totalElapsedSeconds,
+                        completionRatio = stopped.completionRatio,
+                        distanceMeters = distanceMeters,
+                    )
                     scope.launch {
                         progressRepository.recordWorkout(
                             elapsedSeconds = stopped.totalElapsedSeconds,
@@ -283,6 +303,11 @@ private fun RakdatakApp(
                 }
             },
             onSkip = { screen = AppScreen.HOME },
+        )
+
+        AppScreen.HISTORY -> WorkoutHistoryScreen(
+            entries = historyEntries,
+            onBack = { screen = AppScreen.HOME },
         )
 
         AppScreen.SETTINGS -> SettingsScreen(
