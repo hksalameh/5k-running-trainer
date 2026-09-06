@@ -1,8 +1,9 @@
 package com.rakdatak.core.training
 
-/** Shared keys for live workout state exchanged between the phone and Wear OS app. */
+/** Shared keys and commands exchanged between the phone and Wear OS app. */
 object WearSyncProtocol {
     const val LIVE_DATA_PATH = "/rakdatak/live-workout"
+    const val CONTROL_MESSAGE_PATH = "/rakdatak/workout-control"
 
     const val KEY_STATUS = "status"
     const val KEY_PHASE = "phase"
@@ -13,5 +14,13 @@ object WearSyncProtocol {
     const val KEY_DISTANCE_METERS = "distance_meters"
     const val KEY_UPDATED_AT_MILLIS = "updated_at_millis"
 
+    const val COMMAND_START = "START"
+    const val COMMAND_PAUSE = "PAUSE"
+    const val COMMAND_RESUME = "RESUME"
+    const val COMMAND_STOP = "STOP"
+
     const val UNKNOWN_DOUBLE = -1.0
+
+    fun startCommand(planIndex: Int, elapsedSeconds: Int): String =
+        "$COMMAND_START|${planIndex.coerceAtLeast(0)}|${elapsedSeconds.coerceAtLeast(0)}"
 }
