@@ -26,10 +26,12 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
+import com.rakdatak.app.wear.rememberWearLiveMetrics
 
 private val Black = Color(0xFF141414)
 private val Gray = Color(0xFF747474)
 private val Light = Color(0xFFF5F5F5)
+private val Orange = Color(0xFFFF6D00)
 
 @Composable
 fun SettingsScreen(
@@ -41,6 +43,9 @@ fun SettingsScreen(
     onVibrationChanged: (Boolean) -> Unit,
     onKeepScreenOnChanged: (Boolean) -> Unit,
 ) {
+    val watch = rememberWearLiveMetrics()
+    val watchConnected = watch.isFresh()
+
     Surface(
         modifier = Modifier.fillMaxSize(),
         color = Color.White,
@@ -98,6 +103,40 @@ fun SettingsScreen(
             )
 
             Text(
+                text = "الساعة",
+                style = MaterialTheme.typography.titleLarge,
+                color = Black,
+            )
+
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(20.dp),
+                colors = CardDefaults.cardColors(
+                    containerColor = if (watchConnected) Color(0xFFFFF3E8) else Light,
+                ),
+            ) {
+                Column(
+                    modifier = Modifier.padding(18.dp),
+                    verticalArrangement = Arrangement.spacedBy(5.dp),
+                ) {
+                    Text(
+                        text = if (watchConnected) "Wear OS متصلة" else "Wear OS غير متصلة الآن",
+                        style = MaterialTheme.typography.titleMedium,
+                        color = if (watchConnected) Orange else Black,
+                    )
+                    Text(
+                        text = if (watchConnected) {
+                            "النبض والمسافة وحالة التمرين تصل مباشرة من الساعة إلى الهاتف."
+                        } else {
+                            "شغّل ركضتك على الساعة أثناء التمرين ليظهر النبض والبيانات على الهاتف."
+                        },
+                        style = MaterialTheme.typography.bodySmall,
+                        color = Gray,
+                    )
+                }
+            }
+
+            Text(
                 text = "الخطة والتذكيرات",
                 style = MaterialTheme.typography.titleLarge,
                 color = Black,
@@ -126,12 +165,12 @@ fun SettingsScreen(
                         color = Black,
                     )
                     Text(
-                        text = "نسخة تجريبية 0.3.0",
+                        text = "نسخة تجريبية 0.4.0",
                         style = MaterialTheme.typography.bodyMedium,
                         color = Gray,
                     )
                     Text(
-                        text = "نسخة Wear OS مرافقة، وتتبع المسافة عبر GPS على الهاتف والساعة عند توفر الأذونات.",
+                        text = "تتبع GPS، حفظ التمرين، مواعيد التدريب، وبيانات النبض المباشرة من Wear OS.",
                         style = MaterialTheme.typography.bodySmall,
                         color = Gray,
                     )
