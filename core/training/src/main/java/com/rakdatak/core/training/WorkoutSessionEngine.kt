@@ -35,6 +35,34 @@ class WorkoutSessionEngine(
         return snapshot()
     }
 
+    /**
+     * Restores a previously active workout from persisted elapsed time.
+     * This keeps the recovery logic inside the engine so phone and watch clients can safely
+     * reconstruct phase position without duplicating phase calculations.
+     */
+    fun restore(
+        elapsedSeconds: Int,
+        paused: Boolean = false,
+    ): WorkoutSessionSnapshot {
+        require(elapsedSeconds >= 0) { "elapsedSeconds must be >= 0" }
+
+        status = WorkoutSessionStatus.RUNNING
+        phaseIndex = 0
+        phaseElapsedSeconds = 0
+        totalElapsedSeconds = 0
+
+        val boundedElapsed = elapsedSeconds.coerceAtMost(plan.totalDurationSeconds)
+        if (boundedElapsed > 0) {
+            tick(boundedElapsed)
+        }
+
+        if (status != WorkoutSessionStatus.COMPLETED && paused) {
+            status = WorkoutSessionStatus.PAUSED
+        }
+
+        return snapshot()
+    }
+
     fun pause(): WorkoutSessionSnapshot {
         if (status == WorkoutSessionStatus.RUNNING) {
             status = WorkoutSessionStatus.PAUSED
