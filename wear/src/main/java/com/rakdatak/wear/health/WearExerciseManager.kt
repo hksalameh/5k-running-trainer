@@ -29,8 +29,10 @@ data class WearExerciseMetrics(
 /**
  * Small wrapper around Wear OS Health Services.
  *
- * It always checks device capabilities before requesting metrics so Rakdatak can work on watches
- * with different sensors. Health Services remains the source of truth for live exercise data.
+ * Heart rate is requested independently of GPS. Distance is only requested when GPS is enabled,
+ * because some Wear OS devices reject a RUNNING exercise that asks for DISTANCE_TOTAL while the
+ * exercise configuration explicitly has GPS disabled. The timed workout can still continue when
+ * Health Services is unavailable.
  */
 class WearExerciseManager(context: Context) {
     private val exerciseClient = HealthServices.getClient(context.applicationContext).exerciseClient
@@ -49,6 +51,7 @@ class WearExerciseManager(context: Context) {
             _metrics.value = _metrics.value.copy(
                 heartRateBpm = heartRate ?: _metrics.value.heartRateBpm,
                 distanceMeters = distance ?: _metrics.value.distanceMeters,
+                errorMessage = null,
             )
         }
 
@@ -76,14 +79,17 @@ class WearExerciseManager(context: Context) {
                 return false
             }
 
-            val runningCapabilities =
-                capabilities.getExerciseTypeCapabilities(ExerciseType.RUNNING)
-
+            val runningCapabilities = capabilities.getExerciseTypeCapabilities(ExerciseType.RUNNING)
             val supported = runningCapabilities.supportedDataTypes
-            val requested = setOf(
-                DataType.HEART_RATE_BPM,
-                DataType.DISTANCE_TOTAL,
-            ).intersect(supported)
+
+            val requested = buildSet {
+                if (DataType.HEART_RATE_BPM in supported) {
+                    add(DataType.HEART_RATE_BPM)
+                }
+                if (gpsEnabled && DataType.DISTANCE_TOTAL in supported) {
+                    add(DataType.DISTANCE_TOTAL)
+                }
+            }
 
             _metrics.value = WearExerciseMetrics(
                 heartRateAvailable = DataType.HEART_RATE_BPM in requested,
