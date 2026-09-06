@@ -38,6 +38,7 @@ import com.rakdatak.app.settings.AppSettingsRepository
 import com.rakdatak.app.settings.SettingsScreen
 import com.rakdatak.app.ui.RakdatakHomeScreen
 import com.rakdatak.app.ui.WorkoutScreen
+import com.rakdatak.app.wear.PhoneWearController
 import com.rakdatak.app.workout.ActiveWorkoutRepository
 import com.rakdatak.core.training.BaselinePlanFactory
 import com.rakdatak.core.training.WorkoutSessionEngine
@@ -79,6 +80,7 @@ private fun RakdatakRoot() {
     val historyRepository = remember { WorkoutHistoryRepository(context.applicationContext) }
     val scheduleRepository = remember { TrainingScheduleRepository(context.applicationContext) }
     val reminderScheduler = remember { TrainingReminderScheduler(context.applicationContext) }
+    val wearController = remember { PhoneWearController(context.applicationContext) }
     val scope = rememberCoroutineScope()
 
     val profile by produceState<RunnerProfile?>(initialValue = null, profileRepository) {
@@ -126,6 +128,7 @@ private fun RakdatakRoot() {
             trainingSchedule = trainingSchedule,
             scheduleRepository = scheduleRepository,
             reminderScheduler = reminderScheduler,
+            wearController = wearController,
         )
     }
 }
@@ -142,6 +145,7 @@ private fun RakdatakApp(
     trainingSchedule: UserTrainingSchedule,
     scheduleRepository: TrainingScheduleRepository,
     reminderScheduler: TrainingReminderScheduler,
+    wearController: PhoneWearController,
 ) {
     val plans = remember { BaselinePlanFactory.create() }
     val planIndex = progress.currentPlanIndex.coerceIn(0, plans.lastIndex)
@@ -201,6 +205,7 @@ private fun RakdatakApp(
                             completionRatio = snapshot.completionRatio,
                             distanceMeters = distanceMeters,
                         )
+                        wearController.stop()
                     }
                     activeWorkoutRepository.clear()
                     screen = AppScreen.SUMMARY
@@ -224,6 +229,10 @@ private fun RakdatakApp(
                     distanceMeters = 0.0
                     sessionRecorded = false
                     activeWorkoutRepository.save(snapshot, distanceMeters)
+                    wearController.start(
+                        planIndex = planIndex,
+                        elapsedSeconds = 0,
+                    )
                     screen = AppScreen.WORKOUT
                 }
             },
@@ -234,6 +243,11 @@ private fun RakdatakApp(
                     snapshot
                 }
                 activeWorkoutRepository.save(snapshot, distanceMeters)
+                wearController.start(
+                    planIndex = planIndex,
+                    elapsedSeconds = snapshot.totalElapsedSeconds,
+                )
+                wearController.resume()
                 screen = AppScreen.WORKOUT
             },
             onOpenHistory = { screen = AppScreen.HISTORY },
@@ -254,8 +268,10 @@ private fun RakdatakApp(
             },
             onPauseResume = {
                 snapshot = if (snapshot.status == WorkoutSessionStatus.PAUSED) {
+                    wearController.resume()
                     engine.resume()
                 } else {
+                    wearController.pause()
                     engine.pause()
                 }
                 activeWorkoutRepository.save(snapshot, distanceMeters)
@@ -263,6 +279,7 @@ private fun RakdatakApp(
             onBackToHome = {
                 if (snapshot.status == WorkoutSessionStatus.RUNNING) {
                     snapshot = engine.pause()
+                    wearController.pause()
                 }
                 activeWorkoutRepository.save(snapshot, distanceMeters)
                 screen = AppScreen.HOME
@@ -270,6 +287,7 @@ private fun RakdatakApp(
             onFinish = {
                 val stopped = engine.stop()
                 snapshot = stopped
+                wearController.stop()
                 if (!sessionRecorded) {
                     sessionRecorded = true
                     historyRepository.recordWorkout(
