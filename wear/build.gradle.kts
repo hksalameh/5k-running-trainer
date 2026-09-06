@@ -11,8 +11,8 @@ android {
         applicationId = "com.rakdatak.app"
         minSdk = 30
         targetSdk = 37
-        versionCode = 10003
-        versionName = "0.3.0"
+        versionCode = 10004
+        versionName = "0.4.0"
     }
 
     buildFeatures {
@@ -40,4 +40,5 @@ dependencies {
     implementation("androidx.wear.compose:compose-material3:1.6.2")
     implementation("androidx.wear.compose:compose-foundation:1.6.2")
     implementation("androidx.health:health-services-client:1.0.0")
+    implementation("com.google.android.gms:play-services-wearable:18.2.0")
 }
