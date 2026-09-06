@@ -19,7 +19,9 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -89,7 +91,6 @@ private fun RakdatakWearApp() {
     val permissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestMultiplePermissions(),
     ) {
-        // Re-check the actual granted permissions instead of trusting the requested configuration.
         startWithAvailablePermissions()
     }
 
@@ -117,6 +118,7 @@ private fun RakdatakWearApp() {
         WorkoutSessionStatus.PAUSED -> WorkoutScreen(
             snapshot = snapshot,
             metrics = workoutState.metrics,
+            gpsEnabled = workoutState.gpsEnabled,
             onPauseResume = { WearWorkoutService.togglePause(context) },
             onFinish = { WearWorkoutService.stop(context) },
         )
@@ -141,9 +143,10 @@ private fun ReadyScreen(
         modifier = Modifier
             .fillMaxSize()
             .background(Color.Black)
-            .padding(18.dp),
+            .verticalScroll(rememberScrollState())
+            .padding(horizontal = 20.dp, vertical = 28.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center,
+        verticalArrangement = Arrangement.Top,
     ) {
         Text(
             text = "ركضتك",
@@ -159,7 +162,7 @@ private fun ReadyScreen(
         )
         Spacer(modifier = Modifier.height(10.dp))
         ActionChip(
-            text = if (gpsEnabled) "GPS: مفعّل" else "GPS: بدون",
+            text = if (gpsEnabled) "GPS: مفعّل" else "GPS: مغلق",
             background = Dark,
             onClick = onToggleGps,
         )
@@ -177,6 +180,7 @@ private fun ReadyScreen(
             background = Orange,
             onClick = onStart,
         )
+        Spacer(modifier = Modifier.height(20.dp))
     }
 }
 
@@ -184,6 +188,7 @@ private fun ReadyScreen(
 private fun WorkoutScreen(
     snapshot: WorkoutSessionSnapshot,
     metrics: WearExerciseMetrics,
+    gpsEnabled: Boolean,
     onPauseResume: () -> Unit,
     onFinish: () -> Unit,
 ) {
@@ -191,9 +196,10 @@ private fun WorkoutScreen(
         modifier = Modifier
             .fillMaxSize()
             .background(Color.Black)
-            .padding(horizontal = 18.dp, vertical = 14.dp),
+            .verticalScroll(rememberScrollState())
+            .padding(horizontal = 18.dp, vertical = 24.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center,
+        verticalArrangement = Arrangement.Top,
     ) {
         Text(
             text = phaseLabel(snapshot.currentPhase.type),
@@ -201,7 +207,7 @@ private fun WorkoutScreen(
             fontSize = 16.sp,
             fontWeight = FontWeight.Bold,
         )
-        Spacer(modifier = Modifier.height(6.dp))
+        Spacer(modifier = Modifier.height(4.dp))
 
         Text(
             text = formatTime(snapshot.phaseRemainingSeconds),
@@ -215,34 +221,9 @@ private fun WorkoutScreen(
             fontSize = 11.sp,
         )
 
-        Spacer(modifier = Modifier.height(12.dp))
-
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceEvenly,
-        ) {
-            Metric(
-                value = metrics.heartRateBpm?.toInt()?.toString() ?: "--",
-                label = "نبض",
-            )
-            Metric(value = formatTime(snapshot.totalElapsedSeconds), label = "الوقت")
-            Metric(
-                value = metrics.distanceMeters?.let { "%.2f".format(it / 1_000.0) } ?: "--",
-                label = "كم",
-            )
-        }
-
-        metrics.errorMessage?.let {
-            Spacer(modifier = Modifier.height(5.dp))
-            Text(
-                text = "الحساس غير متاح، التمرين مستمر",
-                color = SoftGray,
-                fontSize = 9.sp,
-            )
-        }
-
-        Spacer(modifier = Modifier.height(14.dp))
-
+        // Keep workout controls high on the round screen so they are always reachable. The whole
+        // page is also scrollable on smaller watches.
+        Spacer(modifier = Modifier.height(9.dp))
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.Center,
@@ -259,6 +240,61 @@ private fun WorkoutScreen(
                 onClick = onFinish,
             )
         }
+
+        Spacer(modifier = Modifier.height(13.dp))
+
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceEvenly,
+        ) {
+            Metric(
+                value = metrics.heartRateBpm?.toInt()?.toString() ?: "--",
+                label = "نبض",
+            )
+            Metric(value = formatTime(snapshot.totalElapsedSeconds), label = "الوقت")
+            Metric(
+                value = metrics.distanceMeters?.let { "%.2f".format(it / 1_000.0) } ?: "--",
+                label = "كم",
+            )
+        }
+
+        Spacer(modifier = Modifier.height(7.dp))
+        Text(
+            text = when {
+                metrics.heartRateBpm != null && gpsEnabled && metrics.distanceMeters != null ->
+                    "النبض والمسافة يعملان"
+                metrics.heartRateBpm != null && !gpsEnabled ->
+                    "النبض يعمل • فعّل GPS قبل التمرين للمسافة"
+                metrics.heartRateAvailable ->
+                    "جاري قراءة النبض من الساعة..."
+                else ->
+                    "نحاول قراءة النبض من حساس الساعة"
+            },
+            color = SoftGray,
+            fontSize = 9.sp,
+        )
+
+        if (gpsEnabled && !metrics.distanceAvailable) {
+            Spacer(modifier = Modifier.height(3.dp))
+            Text(
+                text = "المسافة عبر GPS غير متاحة حاليًا",
+                color = SoftGray,
+                fontSize = 9.sp,
+            )
+        }
+
+        metrics.errorMessage?.let {
+            if (metrics.heartRateBpm == null) {
+                Spacer(modifier = Modifier.height(3.dp))
+                Text(
+                    text = "تعذر تشغيل Health Services؛ التمرين مستمر بالحساس المباشر.",
+                    color = SoftGray,
+                    fontSize = 8.sp,
+                )
+            }
+        }
+
+        Spacer(modifier = Modifier.height(28.dp))
     }
 }
 
@@ -272,9 +308,10 @@ private fun SummaryScreen(
         modifier = Modifier
             .fillMaxSize()
             .background(Color.Black)
-            .padding(18.dp),
+            .verticalScroll(rememberScrollState())
+            .padding(horizontal = 20.dp, vertical = 28.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center,
+        verticalArrangement = Arrangement.Top,
     ) {
         Text(
             text = if (snapshot.status == WorkoutSessionStatus.COMPLETED) "أحسنت!" else "تم حفظ التمرين",
@@ -301,6 +338,7 @@ private fun SummaryScreen(
             background = Orange,
             onClick = onDone,
         )
+        Spacer(modifier = Modifier.height(20.dp))
     }
 }
 
