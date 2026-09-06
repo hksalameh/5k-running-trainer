@@ -62,6 +62,10 @@ import com.rakdatak.app.profile.RunnerProfile
 import com.rakdatak.app.profile.RunnerProfileRepository
 import com.rakdatak.app.progress.TrainingProgress
 import com.rakdatak.app.progress.TrainingProgressRepository
+import com.rakdatak.app.schedule.TrainingReminderScheduler
+import com.rakdatak.app.schedule.TrainingScheduleRepository
+import com.rakdatak.app.schedule.TrainingScheduleScreen
+import com.rakdatak.app.schedule.UserTrainingSchedule
 import com.rakdatak.app.settings.AppSettings
 import com.rakdatak.app.settings.AppSettingsRepository
 import com.rakdatak.app.settings.SettingsScreen
@@ -72,6 +76,7 @@ import com.rakdatak.core.training.WorkoutSessionEngine
 import com.rakdatak.core.training.WorkoutSessionSnapshot
 import com.rakdatak.core.training.WorkoutSessionStatus
 import com.rakdatak.core.training.model.WorkoutPhaseType
+import java.time.LocalDateTime
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
@@ -86,6 +91,7 @@ private enum class AppScreen {
     WORKOUT,
     SUMMARY,
     SETTINGS,
+    SCHEDULE,
 }
 
 class MainActivity : ComponentActivity() {
@@ -108,6 +114,8 @@ private fun RakdatakRoot() {
     val progressRepository = remember { TrainingProgressRepository(context.applicationContext) }
     val settingsRepository = remember { AppSettingsRepository(context.applicationContext) }
     val activeWorkoutRepository = remember { ActiveWorkoutRepository(context.applicationContext) }
+    val scheduleRepository = remember { TrainingScheduleRepository(context.applicationContext) }
+    val reminderScheduler = remember { TrainingReminderScheduler(context.applicationContext) }
     val scope = rememberCoroutineScope()
 
     val profile by produceState<RunnerProfile?>(initialValue = null, profileRepository) {
@@ -118,6 +126,12 @@ private fun RakdatakRoot() {
     }
     val settings by produceState(initialValue = AppSettings(), settingsRepository) {
         settingsRepository.settings.collectLatest { value = it }
+    }
+    val trainingSchedule by produceState(
+        initialValue = UserTrainingSchedule(),
+        scheduleRepository,
+    ) {
+        scheduleRepository.schedule.collectLatest { value = it }
     }
 
     when {
@@ -145,6 +159,9 @@ private fun RakdatakRoot() {
             settings = settings,
             settingsRepository = settingsRepository,
             activeWorkoutRepository = activeWorkoutRepository,
+            trainingSchedule = trainingSchedule,
+            scheduleRepository = scheduleRepository,
+            reminderScheduler = reminderScheduler,
         )
     }
 }
@@ -157,6 +174,9 @@ private fun RakdatakApp(
     settings: AppSettings,
     settingsRepository: AppSettingsRepository,
     activeWorkoutRepository: ActiveWorkoutRepository,
+    trainingSchedule: UserTrainingSchedule,
+    scheduleRepository: TrainingScheduleRepository,
+    reminderScheduler: TrainingReminderScheduler,
 ) {
     val plans = remember { BaselinePlanFactory.create() }
     val planIndex = progress.currentPlanIndex.coerceIn(0, plans.lastIndex)
@@ -167,8 +187,6 @@ private fun RakdatakApp(
     val initialEngine = remember {
         WorkoutSessionEngine(plan).also { restoredEngine ->
             restoredWorkout?.let { saved ->
-                // A recovered process starts paused rather than guessing how long the user kept
-                // exercising while Android had the process stopped.
                 restoredEngine.restore(
                     elapsedSeconds = saved.elapsedSeconds,
                     paused = true,
@@ -287,7 +305,6 @@ private fun RakdatakApp(
                     }
                 }
                 activeWorkoutRepository.clear()
-                // Manual stop returns directly home. Feedback never blocks leaving a workout.
                 screen = AppScreen.HOME
             },
         )
@@ -309,7 +326,13 @@ private fun RakdatakApp(
 
         AppScreen.SETTINGS -> SettingsScreen(
             settings = settings,
+            trainingScheduleSummary = if (trainingSchedule.isConfigured) {
+                "تم ضبط 3 مواعيد أسبوعية. اضغط للتعديل."
+            } else {
+                "اختر 3 أيام وأوقات أسبوعية لتذكيرك بالتمرين."
+            },
             onBack = { screen = AppScreen.HOME },
+            onOpenTrainingSchedule = { screen = AppScreen.SCHEDULE },
             onSoundCuesChanged = { enabled ->
                 scope.launch { settingsRepository.setSoundCuesEnabled(enabled) }
             },
@@ -319,6 +342,21 @@ private fun RakdatakApp(
             onKeepScreenOnChanged = { enabled ->
                 scope.launch { settingsRepository.setKeepScreenOnDuringWorkout(enabled) }
             },
+        )
+
+        AppScreen.SCHEDULE -> TrainingScheduleScreen(
+            existingSlots = trainingSchedule.slots,
+            onSave = { slots ->
+                scope.launch {
+                    scheduleRepository.saveSlots(slots)
+                    reminderScheduler.replaceNextReminder(
+                        after = LocalDateTime.now(),
+                        slots = slots,
+                    )
+                    screen = AppScreen.SETTINGS
+                }
+            },
+            onCancel = { screen = AppScreen.SETTINGS },
         )
     }
 }
