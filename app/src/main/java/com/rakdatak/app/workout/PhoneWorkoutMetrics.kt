@@ -15,6 +15,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalContext
 import androidx.core.content.ContextCompat
@@ -39,9 +40,10 @@ fun rememberPhoneWorkoutMetrics(
     val locationManager = remember {
         context.getSystemService(Context.LOCATION_SERVICE) as LocationManager
     }
+    val currentOnDistanceChanged by rememberUpdatedState(onDistanceChanged)
 
     var permissionGranted by remember {
-        mutableStateOf(hasLocationPermission(context))
+        mutableStateOf(hasFineLocationPermission(context))
     }
     var distanceMeters by remember(initialDistanceMeters) {
         mutableStateOf(initialDistanceMeters.coerceAtLeast(0.0))
@@ -53,14 +55,19 @@ fun rememberPhoneWorkoutMetrics(
     }
 
     val permissionLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.RequestPermission(),
-    ) { granted ->
-        permissionGranted = granted || hasLocationPermission(context)
+        contract = ActivityResultContracts.RequestMultiplePermissions(),
+    ) {
+        permissionGranted = hasFineLocationPermission(context)
     }
 
     LaunchedEffect(active) {
         if (active && !permissionGranted) {
-            permissionLauncher.launch(Manifest.permission.ACCESS_FINE_LOCATION)
+            permissionLauncher.launch(
+                arrayOf(
+                    Manifest.permission.ACCESS_COARSE_LOCATION,
+                    Manifest.permission.ACCESS_FINE_LOCATION,
+                )
+            )
         }
     }
 
@@ -85,7 +92,7 @@ fun rememberPhoneWorkoutMetrics(
 
                 if (plausibleSegment && plausibleSpeed) {
                     distanceMeters += segmentMeters.toDouble()
-                    onDistanceChanged(distanceMeters)
+                    currentOnDistanceChanged(distanceMeters)
                 }
             }
 
@@ -126,7 +133,7 @@ fun rememberPhoneWorkoutMetrics(
     )
 }
 
-private fun hasLocationPermission(context: Context): Boolean =
+private fun hasFineLocationPermission(context: Context): Boolean =
     ContextCompat.checkSelfPermission(
         context,
         Manifest.permission.ACCESS_FINE_LOCATION,
