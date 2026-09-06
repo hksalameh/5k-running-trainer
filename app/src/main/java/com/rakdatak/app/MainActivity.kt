@@ -14,23 +14,30 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.DirectionsRun
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -43,6 +50,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLayoutDirection
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -52,6 +60,9 @@ import com.rakdatak.app.profile.RunnerProfile
 import com.rakdatak.app.profile.RunnerProfileRepository
 import com.rakdatak.app.progress.TrainingProgress
 import com.rakdatak.app.progress.TrainingProgressRepository
+import com.rakdatak.app.settings.AppSettings
+import com.rakdatak.app.settings.AppSettingsRepository
+import com.rakdatak.app.settings.SettingsScreen
 import com.rakdatak.core.training.BaselinePlanFactory
 import com.rakdatak.core.training.WorkoutSessionEngine
 import com.rakdatak.core.training.WorkoutSessionSnapshot
@@ -70,6 +81,7 @@ private enum class AppScreen {
     HOME,
     WORKOUT,
     SUMMARY,
+    SETTINGS,
 }
 
 class MainActivity : ComponentActivity() {
@@ -90,6 +102,7 @@ private fun RakdatakRoot() {
     val context = LocalContext.current
     val profileRepository = remember { RunnerProfileRepository(context.applicationContext) }
     val progressRepository = remember { TrainingProgressRepository(context.applicationContext) }
+    val settingsRepository = remember { AppSettingsRepository(context.applicationContext) }
     val scope = rememberCoroutineScope()
 
     val profile by produceState<RunnerProfile?>(initialValue = null, profileRepository) {
@@ -97,6 +110,9 @@ private fun RakdatakRoot() {
     }
     val progress by produceState(initialValue = TrainingProgress(), progressRepository) {
         progressRepository.progress.collectLatest { value = it }
+    }
+    val settings by produceState(initialValue = AppSettings(), settingsRepository) {
+        settingsRepository.settings.collectLatest { value = it }
     }
 
     when {
@@ -121,6 +137,8 @@ private fun RakdatakRoot() {
             profile = profile!!,
             progress = progress,
             progressRepository = progressRepository,
+            settings = settings,
+            settingsRepository = settingsRepository,
         )
     }
 }
@@ -130,6 +148,8 @@ private fun RakdatakApp(
     profile: RunnerProfile,
     progress: TrainingProgress,
     progressRepository: TrainingProgressRepository,
+    settings: AppSettings,
+    settingsRepository: AppSettingsRepository,
 ) {
     val plans = remember { BaselinePlanFactory.create() }
     val planIndex = progress.currentPlanIndex.coerceIn(0, plans.lastIndex)
@@ -173,10 +193,14 @@ private fun RakdatakApp(
                     screen = AppScreen.WORKOUT
                 }
             },
+            onOpenSettings = { screen = AppScreen.SETTINGS },
         )
 
         AppScreen.WORKOUT -> WorkoutScreen(
             snapshot = snapshot,
+            soundCuesEnabled = settings.soundCuesEnabled,
+            vibrationEnabled = settings.vibrationEnabled,
+            keepScreenOn = settings.keepScreenOnDuringWorkout,
             onPauseResume = {
                 snapshot = if (snapshot.status == WorkoutSessionStatus.PAUSED) {
                     engine.resume()
@@ -212,6 +236,21 @@ private fun RakdatakApp(
                     screen = AppScreen.HOME
                 }
             },
+            onSkip = { screen = AppScreen.HOME },
+        )
+
+        AppScreen.SETTINGS -> SettingsScreen(
+            settings = settings,
+            onBack = { screen = AppScreen.HOME },
+            onSoundCuesChanged = { enabled ->
+                scope.launch { settingsRepository.setSoundCuesEnabled(enabled) }
+            },
+            onVibrationChanged = { enabled ->
+                scope.launch { settingsRepository.setVibrationEnabled(enabled) }
+            },
+            onKeepScreenOnChanged = { enabled ->
+                scope.launch { settingsRepository.setKeepScreenOnDuringWorkout(enabled) }
+            },
         )
     }
 }
@@ -223,6 +262,7 @@ private fun RakdatakHomeScreen(
     currentPlanTitle: String,
     planProgress: Float,
     onStartWorkout: () -> Unit,
+    onOpenSettings: () -> Unit,
 ) {
     Surface(
         modifier = Modifier.fillMaxSize(),
@@ -231,19 +271,37 @@ private fun RakdatakHomeScreen(
         Column(
             modifier = Modifier
                 .fillMaxSize()
+                .verticalScroll(rememberScrollState())
                 .padding(horizontal = 20.dp, vertical = 18.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
-            Text(
-                text = "ركضتك",
-                style = MaterialTheme.typography.headlineMedium,
-                color = RakdatakBlack,
-            )
-            Text(
-                text = "خطوة ثابتة اليوم، فرق كبير بكرة.",
-                style = MaterialTheme.typography.bodyLarge,
-                color = RakdatakGray,
-            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text(
+                        text = "ركضتك",
+                        style = MaterialTheme.typography.headlineMedium,
+                        color = RakdatakBlack,
+                    )
+                    Text(
+                        text = "خطوة ثابتة اليوم، فرق كبير بكرة.",
+                        style = MaterialTheme.typography.bodyLarge,
+                        color = RakdatakGray,
+                    )
+                }
+
+                IconButton(onClick = onOpenSettings) {
+                    Icon(
+                        imageVector = Icons.Default.Settings,
+                        contentDescription = "الإعدادات",
+                        tint = RakdatakBlack,
+                        modifier = Modifier.size(28.dp),
+                    )
+                }
+            }
 
             GoalCard(planProgress = planProgress)
 
@@ -290,6 +348,8 @@ private fun RakdatakHomeScreen(
                     style = MaterialTheme.typography.bodySmall,
                 )
             }
+
+            Spacer(modifier = Modifier.height(12.dp))
         }
     }
 }
@@ -454,10 +514,49 @@ private fun NextWorkoutCard(
 @Composable
 private fun WorkoutScreen(
     snapshot: WorkoutSessionSnapshot,
+    soundCuesEnabled: Boolean,
+    vibrationEnabled: Boolean,
+    keepScreenOn: Boolean,
     onPauseResume: () -> Unit,
     onFinish: () -> Unit,
 ) {
-    PhoneWorkoutCoachEffect(snapshot)
+    PhoneWorkoutCoachEffect(
+        snapshot = snapshot,
+        soundCuesEnabled = soundCuesEnabled,
+        vibrationEnabled = vibrationEnabled,
+    )
+
+    val view = LocalView.current
+    DisposableEffect(view, keepScreenOn) {
+        val previousValue = view.keepScreenOn
+        view.keepScreenOn = keepScreenOn
+        onDispose { view.keepScreenOn = previousValue }
+    }
+
+    var showFinishConfirmation by remember { mutableStateOf(false) }
+
+    if (showFinishConfirmation) {
+        AlertDialog(
+            onDismissRequest = { showFinishConfirmation = false },
+            title = { Text("إنهاء التمرين؟") },
+            text = { Text("سيتم حفظ الوقت الذي أنجزته ويمكنك العودة للرئيسية بدون تعبئة أي تقييم.") },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        showFinishConfirmation = false
+                        onFinish()
+                    },
+                ) {
+                    Text("إنهاء", color = RakdatakOrange)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showFinishConfirmation = false }) {
+                    Text("متابعة التمرين", color = RakdatakBlack)
+                }
+            },
+        )
+    }
 
     Surface(
         modifier = Modifier.fillMaxSize(),
@@ -494,8 +593,8 @@ private fun WorkoutScreen(
                 horizontalArrangement = Arrangement.SpaceEvenly,
             ) {
                 WorkoutMetric(value = formatTime(snapshot.totalElapsedSeconds), label = "الوقت")
-                WorkoutMetric(value = "--", label = "النبض")
-                WorkoutMetric(value = "--", label = "المسافة")
+                WorkoutMetric(value = "—", label = "النبض")
+                WorkoutMetric(value = "—", label = "المسافة")
             }
 
             Spacer(modifier = Modifier.height(32.dp))
@@ -517,7 +616,7 @@ private fun WorkoutScreen(
             Spacer(modifier = Modifier.height(12.dp))
 
             OutlinedButton(
-                onClick = onFinish,
+                onClick = { showFinishConfirmation = true },
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(56.dp),
