@@ -2,6 +2,7 @@ package com.rakdatak.app.feedback
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -22,10 +23,11 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.rakdatak.core.training.AdaptiveTrainingEngine
 import com.rakdatak.core.training.WorkoutSessionSnapshot
 import com.rakdatak.core.training.WorkoutSessionStatus
@@ -44,6 +46,7 @@ fun PostWorkoutFeedbackScreen(
     planId: String,
     snapshot: WorkoutSessionSnapshot,
     onDone: (PerceivedDifficulty, PainLevel, TrainingDecision) -> Unit,
+    onSkip: () -> Unit,
 ) {
     var difficulty by remember { mutableStateOf<PerceivedDifficulty?>(null) }
     var pain by remember { mutableStateOf<PainLevel?>(null) }
@@ -71,6 +74,12 @@ fun PostWorkoutFeedbackScreen(
             Spacer(modifier = Modifier.height(22.dp))
 
             if (decision == null) {
+                Text(
+                    text = "التقييم اختياري ويساعد ركضتك على تحسين الخطة.",
+                    color = Gray,
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+                Spacer(modifier = Modifier.height(14.dp))
                 Text(
                     text = "كيف كان التمرين؟",
                     color = Black,
@@ -169,6 +178,20 @@ fun PostWorkoutFeedbackScreen(
                 ) {
                     Text("حفظ التقييم")
                 }
+
+                Spacer(modifier = Modifier.height(10.dp))
+                OutlinedButton(
+                    onClick = onSkip,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(52.dp),
+                    shape = RoundedCornerShape(18.dp),
+                ) {
+                    Text(
+                        text = "تخطي والعودة للرئيسية",
+                        color = Black,
+                    )
+                }
             } else {
                 Card(
                     modifier = Modifier.fillMaxWidth(),
@@ -222,22 +245,37 @@ private fun FeedbackChoice(
     selected: Boolean,
     onClick: () -> Unit,
 ) {
+    val contentPadding = PaddingValues(horizontal = 4.dp, vertical = 10.dp)
+
     if (selected) {
         Button(
             onClick = onClick,
             modifier = modifier,
             shape = RoundedCornerShape(14.dp),
             colors = ButtonDefaults.buttonColors(containerColor = Black),
+            contentPadding = contentPadding,
         ) {
-            Text(text)
+            Text(
+                text = text,
+                maxLines = 1,
+                fontSize = 14.sp,
+                textAlign = TextAlign.Center,
+            )
         }
     } else {
         OutlinedButton(
             onClick = onClick,
             modifier = modifier,
             shape = RoundedCornerShape(14.dp),
+            contentPadding = contentPadding,
         ) {
-            Text(text, color = Black)
+            Text(
+                text = text,
+                color = Black,
+                maxLines = 1,
+                fontSize = 14.sp,
+                textAlign = TextAlign.Center,
+            )
         }
     }
 }
