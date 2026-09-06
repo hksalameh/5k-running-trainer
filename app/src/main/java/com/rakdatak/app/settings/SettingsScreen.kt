@@ -27,7 +27,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 
-private val Orange = Color(0xFFFF6D00)
 private val Black = Color(0xFF141414)
 private val Gray = Color(0xFF747474)
 private val Light = Color(0xFFF5F5F5)
@@ -35,7 +34,9 @@ private val Light = Color(0xFFF5F5F5)
 @Composable
 fun SettingsScreen(
     settings: AppSettings,
+    trainingScheduleSummary: String,
     onBack: () -> Unit,
+    onOpenTrainingSchedule: () -> Unit,
     onSoundCuesChanged: (Boolean) -> Unit,
     onVibrationChanged: (Boolean) -> Unit,
     onKeepScreenOnChanged: (Boolean) -> Unit,
@@ -96,6 +97,18 @@ fun SettingsScreen(
                 onCheckedChange = onKeepScreenOnChanged,
             )
 
+            Text(
+                text = "الخطة والتذكيرات",
+                style = MaterialTheme.typography.titleLarge,
+                color = Black,
+            )
+
+            SettingActionCard(
+                title = "مواعيد التدريب",
+                subtitle = trainingScheduleSummary,
+                onClick = onOpenTrainingSchedule,
+            )
+
             Spacer(modifier = Modifier.height(4.dp))
 
             Card(
@@ -113,12 +126,12 @@ fun SettingsScreen(
                         color = Black,
                     )
                     Text(
-                        text = "نسخة تجريبية 0.2.0",
+                        text = "نسخة تجريبية 0.3.0",
                         style = MaterialTheme.typography.bodyMedium,
                         color = Gray,
                     )
                     Text(
-                        text = "إعدادات المظهر، التذكيرات وربط الصحة ستُضاف ضمن المراحل التالية.",
+                        text = "نسخة Wear OS مرافقة، وتتبع المسافة عبر GPS على الهاتف والساعة عند توفر الأذونات.",
                         style = MaterialTheme.typography.bodySmall,
                         color = Gray,
                     )
@@ -165,6 +178,38 @@ private fun SettingToggleCard(
             Switch(
                 checked = checked,
                 onCheckedChange = onCheckedChange,
+            )
+        }
+    }
+}
+
+@Composable
+private fun SettingActionCard(
+    title: String,
+    subtitle: String,
+    onClick: () -> Unit,
+) {
+    Card(
+        onClick = onClick,
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(20.dp),
+        colors = CardDefaults.cardColors(containerColor = Light),
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(18.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+            Text(
+                text = title,
+                style = MaterialTheme.typography.titleMedium,
+                color = Black,
+            )
+            Text(
+                text = subtitle,
+                style = MaterialTheme.typography.bodySmall,
+                color = Gray,
             )
         }
     }
