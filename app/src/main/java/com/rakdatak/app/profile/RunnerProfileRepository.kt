@@ -1,6 +1,8 @@
 package com.rakdatak.app.profile
 
 import android.content.Context
+import androidx.datastore.preferences.core.MutablePreferences
+import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.intPreferencesKey
@@ -67,32 +69,25 @@ class RunnerProfileRepository(private val context: Context) {
         }
     }
 
-    suspend fun updateProfile(
-        ageYears: Int,
-        sex: RunnerSex?,
-        heightCm: Int?,
-        weightKg: Double?,
-        restingHeartRateBpm: Int?,
-        trainingEnvironment: TrainingEnvironment,
-        safetyReviewNeeded: Boolean,
-    ) {
+    suspend fun updateProfile(profile: RunnerProfile) {
+        val ageYears = requireNotNull(profile.ageYears)
         require(ageYears in 14..100)
-        require(heightCm == null || heightCm in 120..230)
-        require(weightKg == null || weightKg in 30.0..250.0)
-        require(restingHeartRateBpm == null || restingHeartRateBpm in 35..120)
+        require(profile.heightCm == null || profile.heightCm in 120..230)
+        require(profile.weightKg == null || profile.weightKg in 30.0..250.0)
+        require(profile.restingHeartRateBpm == null || profile.restingHeartRateBpm in 35..120)
 
         context.runnerProfileDataStore.edit { preferences ->
             preferences[AGE_YEARS] = ageYears
-            setOrRemove(preferences, SEX, sex?.name)
-            setOrRemove(preferences, HEIGHT_CM, heightCm)
+            setOrRemove(preferences, SEX, profile.sex?.name)
+            setOrRemove(preferences, HEIGHT_CM, profile.heightCm)
             setOrRemove(
                 preferences,
                 WEIGHT_TENTHS_KG,
-                weightKg?.let { (it * 10.0).roundToInt() },
+                profile.weightKg?.let { (it * 10.0).roundToInt() },
             )
-            setOrRemove(preferences, RESTING_HEART_RATE_BPM, restingHeartRateBpm)
-            preferences[TRAINING_ENVIRONMENT] = trainingEnvironment.name
-            preferences[SAFETY_REVIEW_NEEDED] = safetyReviewNeeded
+            setOrRemove(preferences, RESTING_HEART_RATE_BPM, profile.restingHeartRateBpm)
+            preferences[TRAINING_ENVIRONMENT] = profile.trainingEnvironment.name
+            preferences[SAFETY_REVIEW_NEEDED] = profile.safetyReviewNeeded
             preferences[ONBOARDING_COMPLETE] = true
         }
     }
@@ -102,8 +97,8 @@ class RunnerProfileRepository(private val context: Context) {
     }
 
     private fun <T> setOrRemove(
-        preferences: androidx.datastore.preferences.core.MutablePreferences,
-        key: androidx.datastore.preferences.core.Preferences.Key<T>,
+        preferences: MutablePreferences,
+        key: Preferences.Key<T>,
         value: T?,
     ) {
         if (value == null) {
