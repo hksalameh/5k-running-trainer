@@ -237,6 +237,7 @@ private fun RakdatakApp(
                     wearController.start(
                         planIndex = planIndex,
                         elapsedSeconds = 0,
+                        gpsEnabled = profile.trainingEnvironment != TrainingEnvironment.TREADMILL,
                     )
                     screen = AppScreen.WORKOUT
                 }
@@ -251,6 +252,7 @@ private fun RakdatakApp(
                 wearController.start(
                     planIndex = planIndex,
                     elapsedSeconds = snapshot.totalElapsedSeconds,
+                    gpsEnabled = profile.trainingEnvironment != TrainingEnvironment.TREADMILL,
                 )
                 wearController.resume()
                 screen = AppScreen.WORKOUT
