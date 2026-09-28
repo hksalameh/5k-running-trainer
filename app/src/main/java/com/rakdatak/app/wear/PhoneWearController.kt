@@ -10,8 +10,18 @@ class PhoneWearController(context: Context) {
     private val nodeClient = Wearable.getNodeClient(appContext)
     private val messageClient = Wearable.getMessageClient(appContext)
 
-    fun start(planIndex: Int, elapsedSeconds: Int = 0) {
-        send(WearSyncProtocol.startCommand(planIndex, elapsedSeconds))
+    fun start(
+        planIndex: Int,
+        elapsedSeconds: Int = 0,
+        gpsEnabled: Boolean = true,
+    ) {
+        send(
+            WearSyncProtocol.startCommand(
+                planIndex = planIndex,
+                elapsedSeconds = elapsedSeconds,
+                gpsEnabled = gpsEnabled,
+            )
+        )
     }
 
     fun pause() = send(WearSyncProtocol.COMMAND_PAUSE)
