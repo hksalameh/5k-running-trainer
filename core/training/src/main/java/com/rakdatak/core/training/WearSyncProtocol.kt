@@ -21,6 +21,10 @@ object WearSyncProtocol {
 
     const val UNKNOWN_DOUBLE = -1.0
 
-    fun startCommand(planIndex: Int, elapsedSeconds: Int): String =
-        "$COMMAND_START|${planIndex.coerceAtLeast(0)}|${elapsedSeconds.coerceAtLeast(0)}"
+    fun startCommand(
+        planIndex: Int,
+        elapsedSeconds: Int,
+        gpsEnabled: Boolean,
+    ): String =
+        "$COMMAND_START|${planIndex.coerceAtLeast(0)}|${elapsedSeconds.coerceAtLeast(0)}|$gpsEnabled"
 }
