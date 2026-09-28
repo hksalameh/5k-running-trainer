@@ -18,12 +18,14 @@ class WearControlListenerService : WearableListenerService() {
             WearSyncProtocol.COMMAND_START -> {
                 val planIndex = parts.getOrNull(1)?.toIntOrNull() ?: 0
                 val elapsedSeconds = parts.getOrNull(2)?.toIntOrNull() ?: 0
-                val gpsGranted = checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) ==
+                val locationGranted = checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) ==
                     PackageManager.PERMISSION_GRANTED
+                val requestedGps = parts.getOrNull(3)?.toBooleanStrictOrNull() ?: locationGranted
+                val useGps = requestedGps && locationGranted
 
                 WearWorkoutService.start(
                     context = this,
-                    gpsEnabled = gpsGranted,
+                    gpsEnabled = useGps,
                     planIndex = planIndex,
                     elapsedSeconds = elapsedSeconds,
                 )
