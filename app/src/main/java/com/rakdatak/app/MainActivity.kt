@@ -320,6 +320,16 @@ private fun RakdatakApp(
             planId = plan.id,
             snapshot = snapshot,
             distanceMeters = distanceMeters,
+            manualDistanceEntryEnabled = profile.trainingEnvironment == TrainingEnvironment.TREADMILL,
+            onManualDistanceSaved = { manualDistanceMeters ->
+                val historyUpdated = historyRepository.fillLatestMissingDistance(manualDistanceMeters)
+                if (historyUpdated) {
+                    distanceMeters = manualDistanceMeters
+                    scope.launch {
+                        progressRepository.addDistanceToLatestWorkout(manualDistanceMeters)
+                    }
+                }
+            },
             onDone = { _, _, decision ->
                 scope.launch {
                     progressRepository.applyTrainingAction(

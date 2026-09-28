@@ -9,13 +9,17 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -25,6 +29,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -46,17 +51,24 @@ fun PostWorkoutFeedbackScreen(
     planId: String,
     snapshot: WorkoutSessionSnapshot,
     distanceMeters: Double,
+    manualDistanceEntryEnabled: Boolean,
+    onManualDistanceSaved: (Double) -> Unit,
     onDone: (PerceivedDifficulty, PainLevel, TrainingDecision) -> Unit,
     onSkip: () -> Unit,
 ) {
     var difficulty by remember { mutableStateOf<PerceivedDifficulty?>(null) }
     var pain by remember { mutableStateOf<PainLevel?>(null) }
     var decision by remember { mutableStateOf<TrainingDecision?>(null) }
+    var treadmillDistanceText by remember { mutableStateOf("") }
+
+    val treadmillDistanceKm = parseKilometers(treadmillDistanceText)
+    val canSaveTreadmillDistance = treadmillDistanceKm != null && treadmillDistanceKm > 0.0
 
     Surface(modifier = Modifier.fillMaxSize(), color = Color.White) {
         Column(
             modifier = Modifier
                 .fillMaxSize()
+                .verticalScroll(rememberScrollState())
                 .padding(22.dp),
             verticalArrangement = Arrangement.Center,
         ) {
@@ -77,6 +89,59 @@ fun PostWorkoutFeedbackScreen(
                 color = Gray,
                 style = MaterialTheme.typography.bodyLarge,
             )
+
+            if (manualDistanceEntryEnabled && distanceMeters <= 0.0 && decision == null) {
+                Spacer(modifier = Modifier.height(18.dp))
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = CardDefaults.cardColors(containerColor = Light),
+                    shape = RoundedCornerShape(20.dp),
+                ) {
+                    Column(
+                        modifier = Modifier.padding(16.dp),
+                        verticalArrangement = Arrangement.spacedBy(10.dp),
+                    ) {
+                        Text(
+                            text = "مسافة التردمل",
+                            color = Black,
+                            style = MaterialTheme.typography.titleMedium,
+                        )
+                        Text(
+                            text = "أدخل المسافة النهائية الظاهرة على جهاز التردمل حتى تُحفظ في سجلك وإحصاءاتك.",
+                            color = Gray,
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                        OutlinedTextField(
+                            value = treadmillDistanceText,
+                            onValueChange = { value ->
+                                treadmillDistanceText = value
+                                    .filter { character ->
+                                        character.isDigit() || character == '.' ||
+                                            character == ',' || character == '٫'
+                                    }
+                                    .take(8)
+                            },
+                            modifier = Modifier.fillMaxWidth(),
+                            label = { Text("المسافة بالكيلومتر") },
+                            placeholder = { Text("مثال: 3.25") },
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                            singleLine = true,
+                        )
+                        Button(
+                            onClick = {
+                                val kilometers = treadmillDistanceKm ?: return@Button
+                                onManualDistanceSaved(kilometers * 1_000.0)
+                            },
+                            enabled = canSaveTreadmillDistance,
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(16.dp),
+                            colors = ButtonDefaults.buttonColors(containerColor = Black),
+                        ) {
+                            Text("حفظ المسافة")
+                        }
+                    }
+                }
+            }
 
             Spacer(modifier = Modifier.height(22.dp))
 
@@ -286,6 +351,13 @@ private fun FeedbackChoice(
         }
     }
 }
+
+private fun parseKilometers(raw: String): Double? =
+    raw.trim()
+        .replace(',', '.')
+        .replace('٫', '.')
+        .toDoubleOrNull()
+        ?.takeIf { it in 0.01..100.0 }
 
 private fun formatTime(totalSeconds: Int): String =
     "%02d:%02d".format(totalSeconds / 60, totalSeconds % 60)

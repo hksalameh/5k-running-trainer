@@ -65,8 +65,31 @@ class WorkoutHistoryRepository(context: Context) {
             addAll(load())
         }.take(MAX_ENTRIES)
 
+        persist(updated)
+    }
+
+    /**
+     * Fills the distance of the newest workout only when it was originally saved without distance.
+     * Treadmill sessions use this after the runner reads the final distance from the machine.
+     */
+    fun fillLatestMissingDistance(distanceMeters: Double): Boolean {
+        val existing = load()
+        val latest = existing.firstOrNull() ?: return false
+        if (latest.distanceMeters > 0.0) return false
+
+        val safeDistance = distanceMeters.coerceAtLeast(0.0)
+        if (safeDistance <= 0.0) return false
+
+        val updated = existing.mapIndexed { index, entry ->
+            if (index == 0) entry.copy(distanceMeters = safeDistance) else entry
+        }
+        persist(updated)
+        return true
+    }
+
+    private fun persist(entries: List<WorkoutHistoryEntry>) {
         val array = JSONArray()
-        updated.forEach { entry ->
+        entries.take(MAX_ENTRIES).forEach { entry ->
             array.put(
                 JSONObject().apply {
                     put("id", entry.id)
