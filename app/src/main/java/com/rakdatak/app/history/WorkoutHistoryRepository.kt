@@ -17,6 +17,12 @@ data class WorkoutHistoryEntry(
         get() = completionRatio >= 0.999
 }
 
+data class WorkoutDistanceUpdate(
+    val previousDistanceMeters: Double,
+    val newDistanceMeters: Double,
+    val longestDistanceMeters: Double,
+)
+
 class WorkoutHistoryRepository(context: Context) {
     private val preferences = context.applicationContext.getSharedPreferences(
         PREFS_NAME,
@@ -65,8 +71,33 @@ class WorkoutHistoryRepository(context: Context) {
             addAll(load())
         }.take(MAX_ENTRIES)
 
+        persist(updated)
+    }
+
+    /**
+     * Replaces the distance of the most recently recorded workout.
+     * This is used for treadmill sessions where the runner enters the machine's final distance
+     * after the timed workout has already been saved.
+     */
+    fun updateLatestDistance(distanceMeters: Double): WorkoutDistanceUpdate? {
+        val existing = load()
+        val latest = existing.firstOrNull() ?: return null
+        val safeDistance = distanceMeters.coerceAtLeast(0.0)
+        val updated = existing.mapIndexed { index, entry ->
+            if (index == 0) entry.copy(distanceMeters = safeDistance) else entry
+        }
+        persist(updated)
+
+        return WorkoutDistanceUpdate(
+            previousDistanceMeters = latest.distanceMeters,
+            newDistanceMeters = safeDistance,
+            longestDistanceMeters = updated.maxOfOrNull { it.distanceMeters } ?: safeDistance,
+        )
+    }
+
+    private fun persist(entries: List<WorkoutHistoryEntry>) {
         val array = JSONArray()
-        updated.forEach { entry ->
+        entries.take(MAX_ENTRIES).forEach { entry ->
             array.put(
                 JSONObject().apply {
                     put("id", entry.id)
