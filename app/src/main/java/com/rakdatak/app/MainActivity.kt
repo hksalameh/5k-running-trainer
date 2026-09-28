@@ -304,13 +304,14 @@ private fun RakdatakApp(
                     }
                 }
                 activeWorkoutRepository.clear()
-                screen = AppScreen.HOME
+                screen = AppScreen.SUMMARY
             },
         )
 
         AppScreen.SUMMARY -> PostWorkoutFeedbackScreen(
             planId = plan.id,
             snapshot = snapshot,
+            distanceMeters = distanceMeters,
             onDone = { _, _, decision ->
                 scope.launch {
                     progressRepository.applyTrainingAction(
