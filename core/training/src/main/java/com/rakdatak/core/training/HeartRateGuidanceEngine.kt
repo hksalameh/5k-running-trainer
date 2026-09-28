@@ -5,10 +5,12 @@ import kotlin.math.roundToInt
 data class HeartRateProfile(
     val ageYears: Int? = null,
     val knownMaxHeartRateBpm: Int? = null,
+    val restingHeartRateBpm: Int? = null,
 ) {
     init {
         require(ageYears == null || ageYears in 14..100)
         require(knownMaxHeartRateBpm == null || knownMaxHeartRateBpm in 100..240)
+        require(restingHeartRateBpm == null || restingHeartRateBpm in 35..120)
     }
 
     /**
@@ -31,6 +33,7 @@ enum class HeartRateGuidance {
 data class HeartRateGuidanceResult(
     val guidance: HeartRateGuidance,
     val percentOfEstimatedMax: Double? = null,
+    val heartRateReserveFraction: Double? = null,
 )
 
 /**
@@ -39,6 +42,10 @@ data class HeartRateGuidanceResult(
  * Age-predicted maximum heart rate has meaningful individual error, so brief spikes never trigger
  * a pace change. Advice is only escalated after a sustained reading and should be combined with
  * perceived exertion / symptoms in the UI.
+ *
+ * If a resting heart rate is known, heart-rate reserve is used only to make the low/moderate/hard
+ * intensity label more personal. Safety-oriented slow-down/recovery thresholds remain based on the
+ * conservative fraction of estimated/personal maximum heart rate.
  */
 class HeartRateGuidanceEngine(
     private val profile: HeartRateProfile,
@@ -64,15 +71,24 @@ class HeartRateGuidanceEngine(
             return HeartRateGuidanceResult(HeartRateGuidance.NO_GUIDANCE)
         }
 
-        val fraction = heartRateBpm / maxHeartRate.toDouble()
+        val maxFraction = heartRateBpm / maxHeartRate.toDouble()
+        val reserveFraction = profile.restingHeartRateBpm?.let { resting ->
+            val reserve = maxHeartRate - resting
+            if (reserve > 0) {
+                ((heartRateBpm - resting) / reserve.toDouble()).coerceAtLeast(0.0)
+            } else {
+                null
+            }
+        }
+        val intensityFraction = reserveFraction ?: maxFraction
 
-        secondsAboveSlowDown = if (fraction >= slowDownThresholdFraction) {
+        secondsAboveSlowDown = if (maxFraction >= slowDownThresholdFraction) {
             secondsAboveSlowDown + sampleDurationSeconds
         } else {
             0
         }
 
-        secondsAboveRecover = if (fraction >= recoverThresholdFraction) {
+        secondsAboveRecover = if (maxFraction >= recoverThresholdFraction) {
             secondsAboveRecover + sampleDurationSeconds
         } else {
             0
@@ -81,14 +97,15 @@ class HeartRateGuidanceEngine(
         val guidance = when {
             secondsAboveRecover >= recoverSustainSeconds -> HeartRateGuidance.WALK_AND_RECOVER
             secondsAboveSlowDown >= slowDownSustainSeconds -> HeartRateGuidance.SLOW_DOWN
-            fraction < 0.50 -> HeartRateGuidance.COMFORTABLE
-            fraction < 0.70 -> HeartRateGuidance.MODERATE
+            intensityFraction < 0.50 -> HeartRateGuidance.COMFORTABLE
+            intensityFraction < 0.70 -> HeartRateGuidance.MODERATE
             else -> HeartRateGuidance.HARD
         }
 
         return HeartRateGuidanceResult(
             guidance = guidance,
-            percentOfEstimatedMax = fraction,
+            percentOfEstimatedMax = maxFraction,
+            heartRateReserveFraction = reserveFraction,
         )
     }
 }
