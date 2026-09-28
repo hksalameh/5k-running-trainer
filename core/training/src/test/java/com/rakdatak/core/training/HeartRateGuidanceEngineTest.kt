@@ -27,6 +27,21 @@ class HeartRateGuidanceEngineTest {
     }
 
     @Test
+    fun `resting heart rate produces heart rate reserve fraction`() {
+        val engine = HeartRateGuidanceEngine(
+            profile = HeartRateProfile(
+                knownMaxHeartRateBpm = 180,
+                restingHeartRateBpm = 60,
+            ),
+        )
+
+        val result = engine.update(heartRateBpm = 120.0)
+
+        assertEquals(0.50, result.heartRateReserveFraction ?: -1.0, 0.001)
+        assertEquals(HeartRateGuidance.MODERATE, result.guidance)
+    }
+
+    @Test
     fun `brief high heart rate spike does not trigger slow down`() {
         val engine = HeartRateGuidanceEngine(
             profile = HeartRateProfile(knownMaxHeartRateBpm = 200),
