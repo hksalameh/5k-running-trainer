@@ -47,6 +47,7 @@ private val MutedText = Color(0xFF9E9E9E)
 fun WorkoutScreen(
     snapshot: WorkoutSessionSnapshot,
     initialDistanceMeters: Double,
+    gpsTrackingEnabled: Boolean,
     soundCuesEnabled: Boolean,
     vibrationEnabled: Boolean,
     keepScreenOn: Boolean,
@@ -66,7 +67,7 @@ fun WorkoutScreen(
     val watchDistance = watch.distanceMeters?.takeIf { watchFresh } ?: 0.0
 
     val metrics = rememberPhoneWorkoutMetrics(
-        active = snapshot.status == WorkoutSessionStatus.RUNNING,
+        active = gpsTrackingEnabled && snapshot.status == WorkoutSessionStatus.RUNNING,
         initialDistanceMeters = initialDistanceMeters,
         onDistanceChanged = { phoneDistance ->
             onDistanceChanged(maxOf(phoneDistance, watchDistance))
@@ -97,7 +98,7 @@ fun WorkoutScreen(
         AlertDialog(
             onDismissRequest = { showFinishConfirmation = false },
             title = { Text("إنهاء التمرين؟") },
-            text = { Text("سيتم حفظ الوقت والمسافة التي أنجزتها ثم العودة للرئيسية مباشرة.") },
+            text = { Text("سيتم حفظ ما أنجزته ثم عرض ملخص التمرين والتقييم الاختياري.") },
             confirmButton = {
                 TextButton(
                     onClick = {
@@ -161,9 +162,16 @@ fun WorkoutScreen(
             Spacer(modifier = Modifier.height(10.dp))
             Text(
                 text = when {
-                    watchFresh && displayHeartRate != null -> "النبض من الساعة • المسافة من أفضل مصدر متاح"
-                    !metrics.locationPermissionGranted -> "فعّل إذن الموقع لحساب المسافة • النبض يظهر عند اتصال الساعة"
-                    !metrics.gpsAvailable -> "GPS غير متاح حاليًا • النبض يظهر عند اتصال الساعة"
+                    !gpsTrackingEnabled && watchFresh && displayHeartRate != null ->
+                        "وضع التردمل • النبض من الساعة • GPS الهاتف متوقف"
+                    !gpsTrackingEnabled ->
+                        "وضع التردمل • GPS الهاتف متوقف"
+                    watchFresh && displayHeartRate != null ->
+                        "النبض من الساعة • المسافة من أفضل مصدر متاح"
+                    !metrics.locationPermissionGranted ->
+                        "فعّل إذن الموقع لحساب المسافة • النبض يظهر عند اتصال الساعة"
+                    !metrics.gpsAvailable ->
+                        "GPS غير متاح حاليًا • النبض يظهر عند اتصال الساعة"
                     watchFresh -> "الساعة متصلة • بانتظار قراءة النبض"
                     else -> "المسافة عبر GPS • الساعة غير متصلة حاليًا"
                 },
