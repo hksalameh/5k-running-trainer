@@ -24,6 +24,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -34,9 +35,13 @@ import androidx.compose.ui.unit.sp
 import com.rakdatak.app.PhoneWorkoutCoachEffect
 import com.rakdatak.app.wear.rememberWearLiveMetrics
 import com.rakdatak.app.workout.rememberPhoneWorkoutMetrics
+import com.rakdatak.core.training.HeartRateGuidance
+import com.rakdatak.core.training.HeartRateGuidanceEngine
+import com.rakdatak.core.training.HeartRateProfile
 import com.rakdatak.core.training.WorkoutSessionSnapshot
 import com.rakdatak.core.training.WorkoutSessionStatus
 import com.rakdatak.core.training.model.WorkoutPhaseType
+import kotlinx.coroutines.delay
 
 private val Orange = Color(0xFFFF6D00)
 private val Black = Color(0xFF141414)
@@ -48,6 +53,8 @@ fun WorkoutScreen(
     snapshot: WorkoutSessionSnapshot,
     initialDistanceMeters: Double,
     gpsTrackingEnabled: Boolean,
+    runnerAgeYears: Int?,
+    restingHeartRateBpm: Int?,
     soundCuesEnabled: Boolean,
     vibrationEnabled: Boolean,
     keepScreenOn: Boolean,
@@ -76,6 +83,34 @@ fun WorkoutScreen(
 
     val displayDistance = maxOf(metrics.distanceMeters, watchDistance, initialDistanceMeters)
     val displayHeartRate = watch.heartRateBpm?.takeIf { watchFresh }
+    val latestHeartRate by rememberUpdatedState(displayHeartRate)
+    val heartRateEngine = remember(runnerAgeYears, restingHeartRateBpm) {
+        HeartRateGuidanceEngine(
+            HeartRateProfile(
+                ageYears = runnerAgeYears,
+                restingHeartRateBpm = restingHeartRateBpm,
+            )
+        )
+    }
+    var heartRateGuidance by remember(heartRateEngine) {
+        mutableStateOf(HeartRateGuidance.NO_GUIDANCE)
+    }
+
+    LaunchedEffect(snapshot.status, heartRateEngine) {
+        if (snapshot.status != WorkoutSessionStatus.RUNNING) {
+            heartRateEngine.reset()
+            heartRateGuidance = HeartRateGuidance.NO_GUIDANCE
+            return@LaunchedEffect
+        }
+
+        while (true) {
+            heartRateGuidance = heartRateEngine.update(
+                heartRateBpm = latestHeartRate,
+                sampleDurationSeconds = 1,
+            ).guidance
+            delay(1_000)
+        }
+    }
 
     LaunchedEffect(displayDistance) {
         if (displayDistance > initialDistanceMeters) {
@@ -179,6 +214,15 @@ fun WorkoutScreen(
                 style = MaterialTheme.typography.bodySmall,
             )
 
+            heartRateGuidanceText(heartRateGuidance)?.let { guidanceText ->
+                Spacer(modifier = Modifier.height(8.dp))
+                Text(
+                    text = guidanceText,
+                    color = if (heartRateGuidance.requiresPaceAction()) Orange else LightText,
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+            }
+
             Spacer(modifier = Modifier.height(24.dp))
 
             Button(
@@ -216,6 +260,18 @@ private fun WorkoutMetric(value: String, label: String) {
         Text(value, color = Color.White, style = MaterialTheme.typography.titleLarge)
         Text(label, color = LightText, style = MaterialTheme.typography.bodySmall)
     }
+}
+
+private fun HeartRateGuidance.requiresPaceAction(): Boolean =
+    this == HeartRateGuidance.SLOW_DOWN || this == HeartRateGuidance.WALK_AND_RECOVER
+
+private fun heartRateGuidanceText(guidance: HeartRateGuidance): String? = when (guidance) {
+    HeartRateGuidance.NO_GUIDANCE -> null
+    HeartRateGuidance.COMFORTABLE -> "النبض مريح — حافظ على إيقاع سهل وتنفس منتظم."
+    HeartRateGuidance.MODERATE -> "شدة متوسطة — استمر بإيقاع يمكنك التحكم به."
+    HeartRateGuidance.HARD -> "الجهد مرتفع — انتبه لإحساسك ولا ترفع السرعة الآن."
+    HeartRateGuidance.SLOW_DOWN -> "النبض مرتفع لفترة مستمرة — خفف السرعة قليلًا."
+    HeartRateGuidance.WALK_AND_RECOVER -> "النبض مرتفع جدًا لفترة مستمرة — امشِ واستعد قبل العودة للركض."
 }
 
 private fun phaseLabel(type: WorkoutPhaseType): String = when (type) {
