@@ -70,6 +70,19 @@ class TrainingProgressRepository(private val context: Context) {
         }
     }
 
+    /** Adds a treadmill distance that was entered after the workout itself had been recorded. */
+    suspend fun addDistanceToLatestWorkout(distanceMeters: Double) {
+        val safeDistanceMeters = distanceMeters.coerceAtLeast(0.0).roundToLong()
+        if (safeDistanceMeters <= 0L) return
+
+        context.trainingProgressDataStore.edit { preferences ->
+            val previousDistance = preferences[TOTAL_DISTANCE_METERS] ?: 0L
+            val previousLongestDistance = preferences[LONGEST_DISTANCE_METERS] ?: 0L
+            preferences[TOTAL_DISTANCE_METERS] = previousDistance + safeDistanceMeters
+            preferences[LONGEST_DISTANCE_METERS] = maxOf(previousLongestDistance, safeDistanceMeters)
+        }
+    }
+
     suspend fun applyTrainingAction(
         action: TrainingAction,
         planCount: Int,
