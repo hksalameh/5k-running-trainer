@@ -45,6 +45,7 @@ private val Light = Color(0xFFF5F5F5)
 fun PostWorkoutFeedbackScreen(
     planId: String,
     snapshot: WorkoutSessionSnapshot,
+    distanceMeters: Double,
     onDone: (PerceivedDifficulty, PainLevel, TrainingDecision) -> Unit,
     onSkip: () -> Unit,
 ) {
@@ -66,7 +67,13 @@ fun PostWorkoutFeedbackScreen(
             )
             Spacer(modifier = Modifier.height(6.dp))
             Text(
-                text = "الوقت ${formatTime(snapshot.totalElapsedSeconds)} • ${(snapshot.completionRatio * 100).toInt()}% مكتمل",
+                text = buildString {
+                    append("الوقت ${formatTime(snapshot.totalElapsedSeconds)}")
+                    append(" • ${(snapshot.completionRatio * 100).toInt()}% مكتمل")
+                    if (distanceMeters > 0.0) {
+                        append(" • ${formatDistance(distanceMeters)}")
+                    }
+                },
                 color = Gray,
                 style = MaterialTheme.typography.bodyLarge,
             )
@@ -156,7 +163,7 @@ fun PostWorkoutFeedbackScreen(
                             result = WorkoutResult(
                                 planId = planId,
                                 completionRatio = snapshot.completionRatio,
-                                distanceMeters = null,
+                                distanceMeters = distanceMeters.takeIf { it > 0.0 },
                                 continuousRunSeconds = 0,
                                 averageHeartRateBpm = null,
                                 excessiveHeartRateFraction = null,
@@ -282,3 +289,6 @@ private fun FeedbackChoice(
 
 private fun formatTime(totalSeconds: Int): String =
     "%02d:%02d".format(totalSeconds / 60, totalSeconds % 60)
+
+private fun formatDistance(distanceMeters: Double): String =
+    "%.2f كم".format(distanceMeters.coerceAtLeast(0.0) / 1_000.0)

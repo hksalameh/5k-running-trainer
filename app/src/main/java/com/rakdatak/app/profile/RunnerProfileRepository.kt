@@ -51,6 +51,21 @@ class RunnerProfileRepository(private val context: Context) {
         }
     }
 
+    suspend fun updateProfile(
+        ageYears: Int,
+        trainingEnvironment: TrainingEnvironment,
+        safetyReviewNeeded: Boolean,
+    ) {
+        require(ageYears in 14..100)
+
+        context.runnerProfileDataStore.edit { preferences ->
+            preferences[AGE_YEARS] = ageYears
+            preferences[TRAINING_ENVIRONMENT] = trainingEnvironment.name
+            preferences[SAFETY_REVIEW_NEEDED] = safetyReviewNeeded
+            preferences[ONBOARDING_COMPLETE] = true
+        }
+    }
+
     suspend fun clearForTesting() {
         context.runnerProfileDataStore.edit { it.clear() }
     }

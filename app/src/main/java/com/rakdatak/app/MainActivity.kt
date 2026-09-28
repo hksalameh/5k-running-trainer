@@ -25,8 +25,10 @@ import com.rakdatak.app.feedback.PostWorkoutFeedbackScreen
 import com.rakdatak.app.history.WorkoutHistoryRepository
 import com.rakdatak.app.history.WorkoutHistoryScreen
 import com.rakdatak.app.profile.OnboardingScreen
+import com.rakdatak.app.profile.ProfileSettingsScreen
 import com.rakdatak.app.profile.RunnerProfile
 import com.rakdatak.app.profile.RunnerProfileRepository
+import com.rakdatak.app.profile.TrainingEnvironment
 import com.rakdatak.app.progress.TrainingProgress
 import com.rakdatak.app.progress.TrainingProgressRepository
 import com.rakdatak.app.schedule.TrainingReminderScheduler
@@ -54,6 +56,7 @@ private enum class AppScreen {
     SUMMARY,
     HISTORY,
     SETTINGS,
+    PROFILE,
     SCHEDULE,
 }
 
@@ -119,6 +122,7 @@ private fun RakdatakRoot() {
 
         else -> RakdatakApp(
             profile = profile!!,
+            profileRepository = profileRepository,
             progress = progress,
             progressRepository = progressRepository,
             settings = settings,
@@ -136,6 +140,7 @@ private fun RakdatakRoot() {
 @Composable
 private fun RakdatakApp(
     profile: RunnerProfile,
+    profileRepository: RunnerProfileRepository,
     progress: TrainingProgress,
     progressRepository: TrainingProgressRepository,
     settings: AppSettings,
@@ -232,6 +237,7 @@ private fun RakdatakApp(
                     wearController.start(
                         planIndex = planIndex,
                         elapsedSeconds = 0,
+                        gpsEnabled = profile.trainingEnvironment != TrainingEnvironment.TREADMILL,
                     )
                     screen = AppScreen.WORKOUT
                 }
@@ -246,6 +252,7 @@ private fun RakdatakApp(
                 wearController.start(
                     planIndex = planIndex,
                     elapsedSeconds = snapshot.totalElapsedSeconds,
+                    gpsEnabled = profile.trainingEnvironment != TrainingEnvironment.TREADMILL,
                 )
                 wearController.resume()
                 screen = AppScreen.WORKOUT
@@ -257,6 +264,7 @@ private fun RakdatakApp(
         AppScreen.WORKOUT -> WorkoutScreen(
             snapshot = snapshot,
             initialDistanceMeters = distanceMeters,
+            gpsTrackingEnabled = profile.trainingEnvironment != TrainingEnvironment.TREADMILL,
             soundCuesEnabled = settings.soundCuesEnabled,
             vibrationEnabled = settings.vibrationEnabled,
             keepScreenOn = settings.keepScreenOnDuringWorkout,
@@ -304,13 +312,14 @@ private fun RakdatakApp(
                     }
                 }
                 activeWorkoutRepository.clear()
-                screen = AppScreen.HOME
+                screen = AppScreen.SUMMARY
             },
         )
 
         AppScreen.SUMMARY -> PostWorkoutFeedbackScreen(
             planId = plan.id,
             snapshot = snapshot,
+            distanceMeters = distanceMeters,
             onDone = { _, _, decision ->
                 scope.launch {
                     progressRepository.applyTrainingAction(
@@ -330,12 +339,14 @@ private fun RakdatakApp(
 
         AppScreen.SETTINGS -> SettingsScreen(
             settings = settings,
+            profileSummary = profileSummary(profile),
             trainingScheduleSummary = if (trainingSchedule.isConfigured) {
                 "تم ضبط 3 مواعيد أسبوعية. اضغط للتعديل."
             } else {
                 "اختر 3 أيام وأوقات أسبوعية لتذكيرك بالتمرين."
             },
             onBack = { screen = AppScreen.HOME },
+            onOpenProfileSettings = { screen = AppScreen.PROFILE },
             onOpenTrainingSchedule = { screen = AppScreen.SCHEDULE },
             onSoundCuesChanged = { enabled ->
                 scope.launch { settingsRepository.setSoundCuesEnabled(enabled) }
@@ -346,6 +357,21 @@ private fun RakdatakApp(
             onKeepScreenOnChanged = { enabled ->
                 scope.launch { settingsRepository.setKeepScreenOnDuringWorkout(enabled) }
             },
+        )
+
+        AppScreen.PROFILE -> ProfileSettingsScreen(
+            profile = profile,
+            onSave = { ageYears, environment, safetyReviewNeeded ->
+                scope.launch {
+                    profileRepository.updateProfile(
+                        ageYears = ageYears,
+                        trainingEnvironment = environment,
+                        safetyReviewNeeded = safetyReviewNeeded,
+                    )
+                    screen = AppScreen.SETTINGS
+                }
+            },
+            onBack = { screen = AppScreen.SETTINGS },
         )
 
         AppScreen.SCHEDULE -> TrainingScheduleScreen(
@@ -363,4 +389,15 @@ private fun RakdatakApp(
             onCancel = { screen = AppScreen.SETTINGS },
         )
     }
+}
+
+private fun profileSummary(profile: RunnerProfile): String {
+    val environment = when (profile.trainingEnvironment) {
+        TrainingEnvironment.OUTDOOR -> "خارج المنزل"
+        TrainingEnvironment.TREADMILL -> "تردمل"
+        TrainingEnvironment.BOTH -> "خارجي + تردمل"
+    }
+    val age = profile.ageYears?.let { "$it سنة" } ?: "العمر غير محدد"
+    val safety = if (profile.safetyReviewNeeded) "مراجعة السلامة مفعلة" else "جاهز للركض"
+    return "$age • $environment • $safety"
 }

@@ -36,8 +36,10 @@ private val Orange = Color(0xFFFF6D00)
 @Composable
 fun SettingsScreen(
     settings: AppSettings,
+    profileSummary: String,
     trainingScheduleSummary: String,
     onBack: () -> Unit,
+    onOpenProfileSettings: () -> Unit,
     onOpenTrainingSchedule: () -> Unit,
     onSoundCuesChanged: (Boolean) -> Unit,
     onVibrationChanged: (Boolean) -> Unit,
@@ -143,6 +145,12 @@ fun SettingsScreen(
             )
 
             SettingActionCard(
+                title = "بيانات التدريب",
+                subtitle = profileSummary,
+                onClick = onOpenProfileSettings,
+            )
+
+            SettingActionCard(
                 title = "مواعيد التدريب",
                 subtitle = trainingScheduleSummary,
                 onClick = onOpenTrainingSchedule,
@@ -165,7 +173,7 @@ fun SettingsScreen(
                         color = Black,
                     )
                     Text(
-                        text = "نسخة تجريبية 0.4.0",
+                        text = "نسخة تجريبية 0.4.1",
                         style = MaterialTheme.typography.bodyMedium,
                         color = Gray,
                     )
