@@ -262,6 +262,7 @@ private fun RakdatakApp(
         AppScreen.WORKOUT -> WorkoutScreen(
             snapshot = snapshot,
             initialDistanceMeters = distanceMeters,
+            gpsTrackingEnabled = profile.trainingEnvironment != TrainingEnvironment.TREADMILL,
             soundCuesEnabled = settings.soundCuesEnabled,
             vibrationEnabled = settings.vibrationEnabled,
             keepScreenOn = settings.keepScreenOnDuringWorkout,
