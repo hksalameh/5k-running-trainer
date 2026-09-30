@@ -34,6 +34,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.wear.compose.material3.MaterialTheme
@@ -49,6 +50,8 @@ private val Orange = Color(0xFFFF6D00)
 private val Dark = Color(0xFF111111)
 private val SoftGray = Color(0xFFB8B8B8)
 private const val READ_HEART_RATE = "android.permission.health.READ_HEART_RATE"
+private const val READ_HEALTH_DATA_IN_BACKGROUND =
+    "android.permission.health.READ_HEALTH_DATA_IN_BACKGROUND"
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -78,20 +81,40 @@ private fun RakdatakWearApp() {
             val locationGranted =
                 context.checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) ==
                     PackageManager.PERMISSION_GRANTED
+            val backgroundPermission = backgroundHealthPermission()
+            val backgroundHealthGranted = backgroundPermission == null ||
+                context.checkSelfPermission(backgroundPermission) == PackageManager.PERMISSION_GRANTED
             val useGps = gpsEnabled && locationGranted
-            permissionNotice = if (gpsEnabled && !locationGranted) {
-                "سيبدأ التمرين بدون GPS لأن إذن الموقع غير مفعّل."
-            } else {
-                null
+
+            permissionNotice = when {
+                !backgroundHealthGranted ->
+                    "سيبدأ التمرين، لكن قراءة النبض قد تتوقف عند إطفاء الشاشة لأن إذن الصحة في الخلفية غير مفعّل."
+                gpsEnabled && !locationGranted ->
+                    "سيبدأ التمرين بدون GPS لأن إذن الموقع غير مفعّل."
+                else -> null
             }
             WearWorkoutService.start(context, useGps)
         }
     }
 
-    val permissionLauncher = rememberLauncherForActivityResult(
+    val backgroundPermissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestMultiplePermissions(),
     ) {
+        // Background health access is helpful but not mandatory. Start even if the user declines it.
         startWithAvailablePermissions()
+    }
+
+    val primaryPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestMultiplePermissions(),
+    ) {
+        val backgroundPermission = backgroundHealthPermission()
+        if (backgroundPermission != null &&
+            context.checkSelfPermission(backgroundPermission) != PackageManager.PERMISSION_GRANTED
+        ) {
+            backgroundPermissionLauncher.launch(arrayOf(backgroundPermission))
+        } else {
+            startWithAvailablePermissions()
+        }
     }
 
     val snapshot = workoutState.snapshot
@@ -102,14 +125,21 @@ private fun RakdatakWearApp() {
             notice = permissionNotice,
             onToggleGps = { gpsEnabled = !gpsEnabled },
             onStart = {
-                val missing = requiredExercisePermissions(gpsEnabled).filter { permission ->
+                val missingPrimary = requiredPrimaryExercisePermissions(gpsEnabled).filter { permission ->
                     context.checkSelfPermission(permission) != PackageManager.PERMISSION_GRANTED
                 }
 
-                if (missing.isEmpty()) {
-                    startWithAvailablePermissions()
+                if (missingPrimary.isNotEmpty()) {
+                    primaryPermissionLauncher.launch(missingPrimary.toTypedArray())
                 } else {
-                    permissionLauncher.launch(missing.toTypedArray())
+                    val backgroundPermission = backgroundHealthPermission()
+                    if (backgroundPermission != null &&
+                        context.checkSelfPermission(backgroundPermission) != PackageManager.PERMISSION_GRANTED
+                    ) {
+                        backgroundPermissionLauncher.launch(arrayOf(backgroundPermission))
+                    } else {
+                        startWithAvailablePermissions()
+                    }
                 }
             },
         )
@@ -172,6 +202,7 @@ private fun ReadyScreen(
                 text = it,
                 color = SoftGray,
                 fontSize = 9.sp,
+                textAlign = TextAlign.Center,
             )
         }
         Spacer(modifier = Modifier.height(8.dp))
@@ -197,7 +228,7 @@ private fun WorkoutScreen(
             .fillMaxSize()
             .background(Color.Black)
             .verticalScroll(rememberScrollState())
-            .padding(horizontal = 18.dp, vertical = 24.dp),
+            .padding(horizontal = 18.dp, vertical = 20.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Top,
     ) {
@@ -221,22 +252,21 @@ private fun WorkoutScreen(
             fontSize = 11.sp,
         )
 
-        // Keep workout controls high on the round screen so they are always reachable. The whole
-        // page is also scrollable on smaller watches.
         Spacer(modifier = Modifier.height(9.dp))
-        Row(
+        Column(
             modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.Center,
+            verticalArrangement = Arrangement.spacedBy(7.dp),
         ) {
             ActionChip(
-                text = if (snapshot.status == WorkoutSessionStatus.PAUSED) "متابعة" else "إيقاف مؤقت",
+                text = if (snapshot.status == WorkoutSessionStatus.PAUSED) "متابعة التمرين" else "إيقاف مؤقت",
                 background = Orange,
+                modifier = Modifier.fillMaxWidth(),
                 onClick = onPauseResume,
             )
-            Spacer(modifier = Modifier.width(8.dp))
             ActionChip(
-                text = "إنهاء",
+                text = "إنهاء وحفظ التمرين",
                 background = Dark,
+                modifier = Modifier.fillMaxWidth(),
                 onClick = onFinish,
             )
         }
@@ -272,6 +302,7 @@ private fun WorkoutScreen(
             },
             color = SoftGray,
             fontSize = 9.sp,
+            textAlign = TextAlign.Center,
         )
 
         if (gpsEnabled && !metrics.distanceAvailable) {
@@ -290,6 +321,7 @@ private fun WorkoutScreen(
                     text = "تعذر تشغيل Health Services؛ التمرين مستمر بالحساس المباشر.",
                     color = SoftGray,
                     fontSize = 8.sp,
+                    textAlign = TextAlign.Center,
                 )
             }
         }
@@ -363,21 +395,23 @@ private fun Metric(value: String, label: String) {
 private fun ActionChip(
     text: String,
     background: Color,
+    modifier: Modifier = Modifier,
     onClick: () -> Unit,
 ) {
     Text(
         text = text,
         color = Color.White,
         fontSize = 11.sp,
-        modifier = Modifier
+        textAlign = TextAlign.Center,
+        modifier = modifier
             .clip(RoundedCornerShape(50))
             .background(background)
             .clickable(onClick = onClick)
-            .padding(horizontal = 12.dp, vertical = 9.dp),
+            .padding(horizontal = 12.dp, vertical = 11.dp),
     )
 }
 
-private fun requiredExercisePermissions(gpsEnabled: Boolean): List<String> = buildList {
+private fun requiredPrimaryExercisePermissions(gpsEnabled: Boolean): List<String> = buildList {
     add(Manifest.permission.ACTIVITY_RECOGNITION)
     if (Build.VERSION.SDK_INT >= 36) {
         add(READ_HEART_RATE)
@@ -390,6 +424,12 @@ private fun requiredExercisePermissions(gpsEnabled: Boolean): List<String> = bui
     if (gpsEnabled) {
         add(Manifest.permission.ACCESS_FINE_LOCATION)
     }
+}
+
+private fun backgroundHealthPermission(): String? = when {
+    Build.VERSION.SDK_INT >= 36 -> READ_HEALTH_DATA_IN_BACKGROUND
+    Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU -> Manifest.permission.BODY_SENSORS_BACKGROUND
+    else -> null
 }
 
 private fun phaseLabel(type: WorkoutPhaseType): String = when (type) {
