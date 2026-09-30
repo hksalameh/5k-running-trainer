@@ -43,6 +43,7 @@ import com.rakdatak.app.ui.WorkoutScreen
 import com.rakdatak.app.wear.PhoneWearController
 import com.rakdatak.app.workout.ActiveWorkoutRepository
 import com.rakdatak.core.training.BaselinePlanFactory
+import com.rakdatak.core.training.TrainingScheduleEngine
 import com.rakdatak.core.training.WorkoutSessionEngine
 import com.rakdatak.core.training.WorkoutSessionStatus
 import java.time.LocalDateTime
@@ -153,6 +154,7 @@ private fun RakdatakApp(
     wearController: PhoneWearController,
 ) {
     val plans = remember { BaselinePlanFactory.create() }
+    val scheduleEngine = remember { TrainingScheduleEngine() }
     val planIndex = progress.currentPlanIndex.coerceIn(0, plans.lastIndex)
     val plan = plans[planIndex]
     val scope = rememberCoroutineScope()
@@ -181,6 +183,18 @@ private fun RakdatakApp(
         snapshot.status == WorkoutSessionStatus.PAUSED
     val historyEntries = remember(screen, progress.savedWorkouts) {
         if (screen == AppScreen.HISTORY) historyRepository.load() else emptyList()
+    }
+    val nextWorkoutAt = remember(trainingSchedule.slots, screen) {
+        if (!trainingSchedule.isConfigured) {
+            null
+        } else {
+            runCatching {
+                scheduleEngine.nextSlot(
+                    after = LocalDateTime.now(),
+                    slots = trainingSchedule.slots,
+                )
+            }.getOrNull()
+        }
     }
 
     LaunchedEffect(screen, snapshot.status) {
@@ -223,8 +237,11 @@ private fun RakdatakApp(
         AppScreen.HOME -> RakdatakHomeScreen(
             safetyReviewNeeded = profile.safetyReviewNeeded,
             progress = progress,
-            currentPlanTitle = plan.titleAr,
-            planProgress = (planIndex + 1).toFloat() / plans.size.toFloat(),
+            currentPlan = plan,
+            planProgress = (progress.completedWorkouts.toFloat() / plans.size.toFloat())
+                .coerceIn(0f, 1f),
+            nextWorkoutAt = nextWorkoutAt,
+            scheduleConfigured = trainingSchedule.isConfigured,
             activeWorkout = snapshot.takeIf { hasActiveWorkout },
             activeDistanceMeters = distanceMeters,
             onStartWorkout = {
@@ -259,10 +276,12 @@ private fun RakdatakApp(
             },
             onOpenHistory = { screen = AppScreen.HISTORY },
             onOpenSettings = { screen = AppScreen.SETTINGS },
+            onOpenSchedule = { screen = AppScreen.SCHEDULE },
         )
 
         AppScreen.WORKOUT -> WorkoutScreen(
             snapshot = snapshot,
+            plannedDurationSeconds = plan.totalDurationSeconds,
             initialDistanceMeters = distanceMeters,
             gpsTrackingEnabled = profile.trainingEnvironment != TrainingEnvironment.TREADMILL,
             soundCuesEnabled = settings.soundCuesEnabled,

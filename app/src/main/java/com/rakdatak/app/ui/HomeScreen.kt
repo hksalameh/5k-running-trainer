@@ -30,6 +30,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -40,6 +41,12 @@ import com.rakdatak.app.progress.TrainingProgress
 import com.rakdatak.app.wear.rememberWearLiveMetrics
 import com.rakdatak.core.training.WorkoutSessionSnapshot
 import com.rakdatak.core.training.model.WorkoutPhaseType
+import com.rakdatak.core.training.model.WorkoutPlan
+import java.time.DayOfWeek
+import java.time.LocalDate
+import java.time.LocalDateTime
+import java.time.format.DateTimeFormatter
+import java.util.Locale
 
 private val Orange = Color(0xFFFF6D00)
 private val Black = Color(0xFF141414)
@@ -50,14 +57,17 @@ private val SurfaceGray = Color(0xFFF5F5F5)
 fun RakdatakHomeScreen(
     safetyReviewNeeded: Boolean,
     progress: TrainingProgress,
-    currentPlanTitle: String,
+    currentPlan: WorkoutPlan,
     planProgress: Float,
+    nextWorkoutAt: LocalDateTime?,
+    scheduleConfigured: Boolean,
     activeWorkout: WorkoutSessionSnapshot?,
     activeDistanceMeters: Double,
     onStartWorkout: () -> Unit,
     onResumeWorkout: () -> Unit,
     onOpenHistory: () -> Unit,
     onOpenSettings: () -> Unit,
+    onOpenSchedule: () -> Unit,
 ) {
     val watch = rememberWearLiveMetrics()
     val watchConnected = watch.isFresh()
@@ -118,8 +128,11 @@ fun RakdatakHomeScreen(
                 )
             } else {
                 NextWorkoutCard(
-                    title = currentPlanTitle,
+                    plan = currentPlan,
+                    nextWorkoutAt = nextWorkoutAt,
+                    scheduleConfigured = scheduleConfigured,
                     watchConnected = watchConnected,
+                    onOpenSchedule = onOpenSchedule,
                     onStartWorkout = onStartWorkout,
                 )
             }
@@ -325,8 +338,11 @@ private fun ActiveWorkoutCard(
 
 @Composable
 private fun NextWorkoutCard(
-    title: String,
+    plan: WorkoutPlan,
+    nextWorkoutAt: LocalDateTime?,
+    scheduleConfigured: Boolean,
     watchConnected: Boolean,
+    onOpenSchedule: () -> Unit,
     onStartWorkout: () -> Unit,
 ) {
     Card(
@@ -346,7 +362,7 @@ private fun NextWorkoutCard(
                 Column {
                     Text("التمرين القادم", color = Gray, style = MaterialTheme.typography.labelLarge)
                     Spacer(modifier = Modifier.height(4.dp))
-                    Text(title, color = Black, style = MaterialTheme.typography.titleLarge)
+                    Text(plan.titleAr, color = Black, style = MaterialTheme.typography.titleLarge)
                 }
 
                 Icon(
@@ -358,10 +374,47 @@ private fun NextWorkoutCard(
             }
 
             Text(
-                "إحماء خفيف ثم مشي وركض حسب المرحلة المناسبة لك.",
+                text = "الأسبوع ${plan.week} • الجلسة ${plan.session} • المدة ${formatTime(plan.totalDurationSeconds)}",
+                color = Black,
+                style = MaterialTheme.typography.titleSmall,
+            )
+
+            Text(
+                text = workoutBreakdown(plan),
                 color = Gray,
                 style = MaterialTheme.typography.bodyMedium,
             )
+
+            if (scheduleConfigured && nextWorkoutAt != null) {
+                Surface(
+                    color = Color.White,
+                    shape = RoundedCornerShape(14.dp),
+                ) {
+                    Text(
+                        text = "موعدك القادم: ${formatScheduledWorkout(nextWorkoutAt)}",
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 12.dp, vertical = 10.dp),
+                        color = Black,
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                }
+            } else {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        text = "موعد التمرين غير محدد بعد",
+                        color = Gray,
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                    TextButton(onClick = onOpenSchedule) {
+                        Text("حدد الموعد", color = Orange)
+                    }
+                }
+            }
 
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Icon(
@@ -409,6 +462,55 @@ private fun StatCard(
     }
 }
 
+private fun workoutBreakdown(plan: WorkoutPlan): String {
+    val warmUpSeconds = plan.phases
+        .filter { it.type == WorkoutPhaseType.WARM_UP }
+        .sumOf { it.durationSeconds }
+    val runSeconds = plan.phases
+        .filter { it.type == WorkoutPhaseType.RUN }
+        .sumOf { it.durationSeconds }
+    val walkSeconds = plan.phases
+        .filter { it.type == WorkoutPhaseType.WALK }
+        .sumOf { it.durationSeconds }
+    val coolDownSeconds = plan.phases
+        .filter { it.type == WorkoutPhaseType.COOL_DOWN }
+        .sumOf { it.durationSeconds }
+
+    return buildList {
+        if (warmUpSeconds > 0) add("إحماء ${formatCompactDuration(warmUpSeconds)}")
+        if (runSeconds > 0 && walkSeconds > 0) {
+            add("ركض ${formatCompactDuration(runSeconds)} + مشي ${formatCompactDuration(walkSeconds)} بالتناوب")
+        } else if (runSeconds > 0) {
+            add("ركض ${formatCompactDuration(runSeconds)}")
+        } else if (walkSeconds > 0) {
+            add("مشي ${formatCompactDuration(walkSeconds)}")
+        }
+        if (coolDownSeconds > 0) add("تهدئة ${formatCompactDuration(coolDownSeconds)}")
+    }.joinToString(" • ")
+}
+
+private fun formatScheduledWorkout(value: LocalDateTime): String {
+    val today = LocalDate.now()
+    val date = value.toLocalDate()
+    val dayLabel = when (date) {
+        today -> "اليوم"
+        today.plusDays(1) -> "غدًا"
+        else -> "${arabicDayName(value.dayOfWeek)} ${date.dayOfMonth}/${date.monthValue}"
+    }
+    val timeFormatter = DateTimeFormatter.ofPattern("h:mm a", Locale.forLanguageTag("ar"))
+    return "$dayLabel • ${value.format(timeFormatter)}"
+}
+
+private fun arabicDayName(dayOfWeek: DayOfWeek): String = when (dayOfWeek) {
+    DayOfWeek.SATURDAY -> "السبت"
+    DayOfWeek.SUNDAY -> "الأحد"
+    DayOfWeek.MONDAY -> "الاثنين"
+    DayOfWeek.TUESDAY -> "الثلاثاء"
+    DayOfWeek.WEDNESDAY -> "الأربعاء"
+    DayOfWeek.THURSDAY -> "الخميس"
+    DayOfWeek.FRIDAY -> "الجمعة"
+}
+
 private fun phaseLabel(type: WorkoutPhaseType): String = when (type) {
     WorkoutPhaseType.WARM_UP -> "إحماء خفيف"
     WorkoutPhaseType.WALK -> "مشي"
@@ -418,6 +520,16 @@ private fun phaseLabel(type: WorkoutPhaseType): String = when (type) {
 
 private fun formatTime(totalSeconds: Int): String =
     "%02d:%02d".format(totalSeconds / 60, totalSeconds % 60)
+
+private fun formatCompactDuration(totalSeconds: Int): String {
+    val minutes = totalSeconds / 60
+    val seconds = totalSeconds % 60
+    return if (seconds == 0) {
+        "$minutes د"
+    } else {
+        "%d:%02d د".format(minutes, seconds)
+    }
+}
 
 private fun formatDistance(distanceMeters: Double): String =
     "%.2f كم".format(distanceMeters.coerceAtLeast(0.0) / 1_000.0)

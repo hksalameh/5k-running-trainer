@@ -42,10 +42,12 @@ private val Orange = Color(0xFFFF6D00)
 private val Black = Color(0xFF141414)
 private val LightText = Color(0xFFBDBDBD)
 private val MutedText = Color(0xFF9E9E9E)
+private val DarkPanel = Color(0xFF202020)
 
 @Composable
 fun WorkoutScreen(
     snapshot: WorkoutSessionSnapshot,
+    plannedDurationSeconds: Int,
     initialDistanceMeters: Double,
     gpsTrackingEnabled: Boolean,
     soundCuesEnabled: Boolean,
@@ -76,6 +78,8 @@ fun WorkoutScreen(
 
     val displayDistance = maxOf(metrics.distanceMeters, watchDistance, initialDistanceMeters)
     val displayHeartRate = watch.heartRateBpm?.takeIf { watchFresh }
+    val totalRemainingSeconds =
+        (plannedDurationSeconds - snapshot.totalElapsedSeconds).coerceAtLeast(0)
 
     LaunchedEffect(displayDistance) {
         if (displayDistance > initialDistanceMeters) {
@@ -145,18 +149,42 @@ fun WorkoutScreen(
                 style = MaterialTheme.typography.bodyLarge,
             )
 
-            Spacer(modifier = Modifier.height(28.dp))
+            Spacer(modifier = Modifier.height(22.dp))
 
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceEvenly,
             ) {
-                WorkoutMetric(value = formatTime(snapshot.totalElapsedSeconds), label = "الوقت")
+                WorkoutMetric(value = formatTime(snapshot.totalElapsedSeconds), label = "المنقضي")
                 WorkoutMetric(
                     value = displayHeartRate?.toInt()?.toString() ?: "—",
                     label = "النبض",
                 )
                 WorkoutMetric(value = formatDistance(displayDistance), label = "المسافة")
+            }
+
+            Spacer(modifier = Modifier.height(14.dp))
+
+            Surface(
+                modifier = Modifier.fillMaxWidth(),
+                color = DarkPanel,
+                shape = RoundedCornerShape(16.dp),
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 12.dp),
+                    horizontalArrangement = Arrangement.SpaceEvenly,
+                ) {
+                    WorkoutMetric(
+                        value = formatTime(plannedDurationSeconds),
+                        label = "مدة التمرين",
+                    )
+                    WorkoutMetric(
+                        value = formatTime(totalRemainingSeconds),
+                        label = "المتبقي الكلي",
+                    )
+                }
             }
 
             Spacer(modifier = Modifier.height(10.dp))
@@ -179,7 +207,7 @@ fun WorkoutScreen(
                 style = MaterialTheme.typography.bodySmall,
             )
 
-            Spacer(modifier = Modifier.height(24.dp))
+            Spacer(modifier = Modifier.height(20.dp))
 
             Button(
                 onClick = onPauseResume,
