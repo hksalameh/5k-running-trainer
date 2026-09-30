@@ -38,8 +38,8 @@ import com.rakdatak.app.wear.rememberWearLiveMetrics
 import com.rakdatak.app.workout.rememberPhoneWorkoutMetrics
 import com.rakdatak.core.training.WorkoutSessionSnapshot
 import com.rakdatak.core.training.WorkoutSessionStatus
+import com.rakdatak.core.training.model.WorkoutPhase
 import com.rakdatak.core.training.model.WorkoutPhaseType
-import com.rakdatak.core.training.model.WorkoutPlan
 
 private val Orange = Color(0xFFFF6D00)
 private val Black = Color(0xFF141414)
@@ -50,7 +50,7 @@ private val DarkPanel = Color(0xFF202020)
 @Composable
 fun WorkoutScreen(
     snapshot: WorkoutSessionSnapshot,
-    plan: WorkoutPlan,
+    plannedDurationSeconds: Int,
     initialDistanceMeters: Double,
     gpsTrackingEnabled: Boolean,
     soundCuesEnabled: Boolean,
@@ -82,8 +82,7 @@ fun WorkoutScreen(
     val displayDistance = maxOf(metrics.distanceMeters, watchDistance, initialDistanceMeters)
     val displayHeartRate = watch.heartRateBpm?.takeIf { watchFresh }
     val totalRemainingSeconds =
-        (plan.totalDurationSeconds - snapshot.totalElapsedSeconds).coerceAtLeast(0)
-    val nextPhase = plan.phases.getOrNull(snapshot.phaseIndex + 1)
+        (plannedDurationSeconds - snapshot.totalElapsedSeconds).coerceAtLeast(0)
 
     LaunchedEffect(displayDistance) {
         if (displayDistance > initialDistanceMeters) {
@@ -156,7 +155,7 @@ fun WorkoutScreen(
 
             Spacer(modifier = Modifier.height(18.dp))
 
-            NextPhaseCard(nextPhase = nextPhase)
+            NextPhaseCard(nextPhase = snapshot.nextPhase)
 
             Spacer(modifier = Modifier.height(18.dp))
 
@@ -175,7 +174,7 @@ fun WorkoutScreen(
             Spacer(modifier = Modifier.height(10.dp))
 
             Text(
-                text = "مدة الجلسة ${formatTime(plan.totalDurationSeconds)} • المتبقي الكلي ${formatTime(totalRemainingSeconds)}",
+                text = "مدة الجلسة ${formatTime(plannedDurationSeconds)} • المتبقي الكلي ${formatTime(totalRemainingSeconds)}",
                 color = MutedText,
                 style = MaterialTheme.typography.bodySmall,
                 textAlign = TextAlign.Center,
@@ -234,9 +233,7 @@ fun WorkoutScreen(
 }
 
 @Composable
-private fun NextPhaseCard(
-    nextPhase: com.rakdatak.core.training.model.WorkoutPhase?,
-) {
+private fun NextPhaseCard(nextPhase: WorkoutPhase?) {
     Surface(
         modifier = Modifier.fillMaxWidth(),
         color = DarkPanel,
