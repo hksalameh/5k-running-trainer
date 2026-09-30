@@ -29,6 +29,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.rakdatak.app.PhoneWorkoutCoachEffect
@@ -37,6 +39,7 @@ import com.rakdatak.app.workout.rememberPhoneWorkoutMetrics
 import com.rakdatak.core.training.WorkoutSessionSnapshot
 import com.rakdatak.core.training.WorkoutSessionStatus
 import com.rakdatak.core.training.model.WorkoutPhaseType
+import com.rakdatak.core.training.model.WorkoutPlan
 
 private val Orange = Color(0xFFFF6D00)
 private val Black = Color(0xFF141414)
@@ -47,7 +50,7 @@ private val DarkPanel = Color(0xFF202020)
 @Composable
 fun WorkoutScreen(
     snapshot: WorkoutSessionSnapshot,
-    plannedDurationSeconds: Int,
+    plan: WorkoutPlan,
     initialDistanceMeters: Double,
     gpsTrackingEnabled: Boolean,
     soundCuesEnabled: Boolean,
@@ -79,7 +82,8 @@ fun WorkoutScreen(
     val displayDistance = maxOf(metrics.distanceMeters, watchDistance, initialDistanceMeters)
     val displayHeartRate = watch.heartRateBpm?.takeIf { watchFresh }
     val totalRemainingSeconds =
-        (plannedDurationSeconds - snapshot.totalElapsedSeconds).coerceAtLeast(0)
+        (plan.totalDurationSeconds - snapshot.totalElapsedSeconds).coerceAtLeast(0)
+    val nextPhase = plan.phases.getOrNull(snapshot.phaseIndex + 1)
 
     LaunchedEffect(displayDistance) {
         if (displayDistance > initialDistanceMeters) {
@@ -128,7 +132,7 @@ fun WorkoutScreen(
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(24.dp),
+                .padding(horizontal = 24.dp, vertical = 20.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Center,
         ) {
@@ -136,8 +140,9 @@ fun WorkoutScreen(
                 text = phaseLabel(snapshot.currentPhase.type),
                 color = Orange,
                 style = MaterialTheme.typography.headlineMedium,
+                fontWeight = FontWeight.SemiBold,
             )
-            Spacer(modifier = Modifier.height(12.dp))
+            Spacer(modifier = Modifier.height(8.dp))
             Text(
                 text = formatTime(snapshot.phaseRemainingSeconds),
                 color = Color.White,
@@ -149,13 +154,17 @@ fun WorkoutScreen(
                 style = MaterialTheme.typography.bodyLarge,
             )
 
-            Spacer(modifier = Modifier.height(22.dp))
+            Spacer(modifier = Modifier.height(18.dp))
+
+            NextPhaseCard(nextPhase = nextPhase)
+
+            Spacer(modifier = Modifier.height(18.dp))
 
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceEvenly,
             ) {
-                WorkoutMetric(value = formatTime(snapshot.totalElapsedSeconds), label = "المنقضي")
+                WorkoutMetric(value = formatTime(snapshot.totalElapsedSeconds), label = "الوقت الكلي")
                 WorkoutMetric(
                     value = displayHeartRate?.toInt()?.toString() ?: "—",
                     label = "النبض",
@@ -163,31 +172,16 @@ fun WorkoutScreen(
                 WorkoutMetric(value = formatDistance(displayDistance), label = "المسافة")
             }
 
-            Spacer(modifier = Modifier.height(14.dp))
-
-            Surface(
-                modifier = Modifier.fillMaxWidth(),
-                color = DarkPanel,
-                shape = RoundedCornerShape(16.dp),
-            ) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 12.dp),
-                    horizontalArrangement = Arrangement.SpaceEvenly,
-                ) {
-                    WorkoutMetric(
-                        value = formatTime(plannedDurationSeconds),
-                        label = "مدة التمرين",
-                    )
-                    WorkoutMetric(
-                        value = formatTime(totalRemainingSeconds),
-                        label = "المتبقي الكلي",
-                    )
-                }
-            }
-
             Spacer(modifier = Modifier.height(10.dp))
+
+            Text(
+                text = "مدة الجلسة ${formatTime(plan.totalDurationSeconds)} • المتبقي الكلي ${formatTime(totalRemainingSeconds)}",
+                color = MutedText,
+                style = MaterialTheme.typography.bodySmall,
+                textAlign = TextAlign.Center,
+            )
+
+            Spacer(modifier = Modifier.height(8.dp))
             Text(
                 text = when {
                     !gpsTrackingEnabled && watchFresh && displayHeartRate != null ->
@@ -205,9 +199,10 @@ fun WorkoutScreen(
                 },
                 color = MutedText,
                 style = MaterialTheme.typography.bodySmall,
+                textAlign = TextAlign.Center,
             )
 
-            Spacer(modifier = Modifier.height(20.dp))
+            Spacer(modifier = Modifier.height(18.dp))
 
             Button(
                 onClick = onPauseResume,
@@ -233,6 +228,46 @@ fun WorkoutScreen(
                 shape = RoundedCornerShape(18.dp),
             ) {
                 Text(text = "إنهاء التمرين", color = Color.White)
+            }
+        }
+    }
+}
+
+@Composable
+private fun NextPhaseCard(
+    nextPhase: com.rakdatak.core.training.model.WorkoutPhase?,
+) {
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        color = DarkPanel,
+        shape = RoundedCornerShape(16.dp),
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 18.dp, vertical = 13.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween,
+        ) {
+            Text(
+                text = "التالي",
+                color = LightText,
+                style = MaterialTheme.typography.labelLarge,
+            )
+            if (nextPhase == null) {
+                Text(
+                    text = "نهاية التمرين",
+                    color = Color.White,
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold,
+                )
+            } else {
+                Text(
+                    text = "${phaseLabel(nextPhase.type)}  •  ${formatTime(nextPhase.durationSeconds)}",
+                    color = Color.White,
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold,
+                )
             }
         }
     }
