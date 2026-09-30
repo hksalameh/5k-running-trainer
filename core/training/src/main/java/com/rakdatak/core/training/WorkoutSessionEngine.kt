@@ -18,6 +18,7 @@ data class WorkoutSessionSnapshot(
     val phaseRemainingSeconds: Int,
     val totalElapsedSeconds: Int,
     val completionRatio: Double,
+    val nextPhase: WorkoutPhase? = null,
 )
 
 class WorkoutSessionEngine(
@@ -118,6 +119,13 @@ class WorkoutSessionEngine(
         } else {
             (phase.durationSeconds - phaseElapsedSeconds).coerceAtLeast(0)
         }
+        val nextPhase = if (
+            status == WorkoutSessionStatus.COMPLETED || status == WorkoutSessionStatus.STOPPED
+        ) {
+            null
+        } else {
+            plan.phases.getOrNull(safeIndex + 1)
+        }
 
         return WorkoutSessionSnapshot(
             status = status,
@@ -130,6 +138,7 @@ class WorkoutSessionEngine(
             } else {
                 (totalElapsedSeconds.toDouble() / plan.totalDurationSeconds).coerceIn(0.0, 1.0)
             },
+            nextPhase = nextPhase,
         )
     }
 
