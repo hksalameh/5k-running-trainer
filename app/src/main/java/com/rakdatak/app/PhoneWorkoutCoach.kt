@@ -21,11 +21,7 @@ import com.rakdatak.core.training.model.WorkoutPhaseType
 import java.util.Locale
 import java.util.concurrent.atomic.AtomicInteger
 
-/**
- * Lightweight Arabic voice/haptic coach for the phone workout screen.
- * Voice gender selection is intentionally left for the settings layer because Android TTS engines
- * do not expose a reliable cross-device gender field. The active Arabic system voice is used here.
- */
+/** Lightweight Arabic voice/haptic coach for the phone workout screen. */
 class PhoneWorkoutCoach(context: Context) : TextToSpeech.OnInitListener, AutoCloseable {
     private val appContext = context.applicationContext
     private val audioManager = appContext.getSystemService(AudioManager::class.java)
@@ -43,6 +39,7 @@ class PhoneWorkoutCoach(context: Context) : TextToSpeech.OnInitListener, AutoClo
 
     private var ready = false
     private var lastPhaseIndex = -1
+    private var oneMinuteCuePhase = -1
     private var tenSecondCuePhase = -1
     private var completionAnnounced = false
 
@@ -92,12 +89,24 @@ class PhoneWorkoutCoach(context: Context) : TextToSpeech.OnInitListener, AutoClo
         if (snapshot.phaseIndex != lastPhaseIndex) {
             val isFirstPhase = lastPhaseIndex == -1
             lastPhaseIndex = snapshot.phaseIndex
+            oneMinuteCuePhase = -1
             tenSecondCuePhase = -1
             if (!isFirstPhase && vibrationEnabled) vibrateTransition()
             if (soundCuesEnabled) speak(phasePrompt(snapshot.currentPhase.type))
         }
 
-        if (snapshot.phaseRemainingSeconds == 10 && tenSecondCuePhase != snapshot.phaseIndex) {
+        if (
+            snapshot.phaseRemainingSeconds == 60 &&
+            oneMinuteCuePhase != snapshot.phaseIndex
+        ) {
+            oneMinuteCuePhase = snapshot.phaseIndex
+            if (soundCuesEnabled) speak("باقي دقيقة")
+        }
+
+        if (
+            snapshot.phaseRemainingSeconds == 10 &&
+            tenSecondCuePhase != snapshot.phaseIndex
+        ) {
             tenSecondCuePhase = snapshot.phaseIndex
             if (soundCuesEnabled) speak("باقي عشر ثواني")
         }

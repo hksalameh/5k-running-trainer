@@ -18,7 +18,6 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -100,7 +99,6 @@ private fun RakdatakWearApp() {
     val backgroundPermissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestMultiplePermissions(),
     ) {
-        // Background health access is helpful but not mandatory. Start even if the user declines it.
         startWithAvailablePermissions()
     }
 
@@ -228,7 +226,7 @@ private fun WorkoutScreen(
             .fillMaxSize()
             .background(Color.Black)
             .verticalScroll(rememberScrollState())
-            .padding(horizontal = 18.dp, vertical = 20.dp),
+            .padding(horizontal = 18.dp, vertical = 18.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Top,
     ) {
@@ -250,6 +248,17 @@ private fun WorkoutScreen(
             text = "متبقي لهذه المرحلة",
             color = SoftGray,
             fontSize = 11.sp,
+        )
+
+        Spacer(modifier = Modifier.height(7.dp))
+        Text(
+            text = snapshot.nextPhase?.let {
+                "التالي: ${phaseLabel(it.type)} • ${formatTime(it.durationSeconds)}"
+            } ?: "التالي: نهاية التمرين",
+            color = Color.White,
+            fontSize = 11.sp,
+            fontWeight = FontWeight.SemiBold,
+            textAlign = TextAlign.Center,
         )
 
         Spacer(modifier = Modifier.height(9.dp))
