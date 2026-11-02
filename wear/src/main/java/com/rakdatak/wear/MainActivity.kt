@@ -1,9 +1,15 @@
 package com.rakdatak.wear
 
 import android.Manifest
+import android.content.Context
 import android.content.pm.PackageManager
+import android.media.AudioManager
+import android.media.ToneGenerator
 import android.os.Build
 import android.os.Bundle
+import android.os.VibrationEffect
+import android.os.Vibrator
+import android.os.VibratorManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
@@ -22,8 +28,11 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -44,6 +53,7 @@ import com.rakdatak.core.training.model.WorkoutPhaseType
 import com.rakdatak.wear.health.WearExerciseMetrics
 import com.rakdatak.wear.health.WearWorkoutRepository
 import com.rakdatak.wear.health.WearWorkoutService
+import kotlinx.coroutines.delay
 
 private val Orange = Color(0xFFFF6D00)
 private val Dark = Color(0xFF111111)
@@ -69,6 +79,8 @@ private fun RakdatakWearApp() {
     val workoutState by WearWorkoutRepository.state.collectAsState()
     var gpsEnabled by remember { mutableStateOf(false) }
     var permissionNotice by remember { mutableStateOf<String?>(null) }
+    var starting by remember { mutableStateOf(false) }
+    var pendingUseGps by remember { mutableStateOf(false) }
 
     val startWithAvailablePermissions: () -> Unit = {
         val activityGranted =
@@ -92,7 +104,8 @@ private fun RakdatakWearApp() {
                     "سيبدأ التمرين بدون GPS لأن إذن الموقع غير مفعّل."
                 else -> null
             }
-            WearWorkoutService.start(context, useGps)
+            pendingUseGps = useGps
+            starting = true
         }
     }
 
@@ -113,6 +126,17 @@ private fun RakdatakWearApp() {
         } else {
             startWithAvailablePermissions()
         }
+    }
+
+    if (starting) {
+        WearStartCountdown(
+            onFinished = {
+                val useGps = pendingUseGps
+                starting = false
+                WearWorkoutService.start(context, useGps)
+            },
+        )
+        return
     }
 
     val snapshot = workoutState.snapshot
@@ -156,6 +180,67 @@ private fun RakdatakWearApp() {
             snapshot = snapshot,
             metrics = workoutState.metrics,
             onDone = { WearWorkoutRepository.resetAfterSummary() },
+        )
+    }
+}
+
+@Composable
+private fun WearStartCountdown(
+    onFinished: () -> Unit,
+) {
+    val context = LocalContext.current
+    val tone = remember { ToneGenerator(AudioManager.STREAM_MUSIC, 90) }
+    val vibrator = remember { wearCountdownVibrator(context) }
+    var seconds by remember { mutableIntStateOf(3) }
+
+    DisposableEffect(tone) {
+        onDispose { tone.release() }
+    }
+
+    LaunchedEffect(Unit) {
+        for (value in 3 downTo 1) {
+            seconds = value
+            tone.startTone(
+                if (value == 1) ToneGenerator.TONE_PROP_ACK else ToneGenerator.TONE_PROP_BEEP,
+                170,
+            )
+            vibrator?.vibrate(
+                VibrationEffect.createOneShot(
+                    if (value == 1) 120L else 70L,
+                    VibrationEffect.DEFAULT_AMPLITUDE,
+                )
+            )
+            delay(1_000)
+        }
+        onFinished()
+    }
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color.Black)
+            .padding(horizontal = 20.dp, vertical = 28.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center,
+    ) {
+        Text(
+            text = "استعد",
+            color = Orange,
+            fontSize = 17.sp,
+            fontWeight = FontWeight.Bold,
+        )
+        Spacer(modifier = Modifier.height(6.dp))
+        Text(
+            text = seconds.toString(),
+            color = Color.White,
+            fontSize = 44.sp,
+            fontWeight = FontWeight.Bold,
+        )
+        Text(
+            text = "يبدأ الإحماء بعد العد",
+            color = SoftGray,
+            fontSize = 10.sp,
+            textAlign = TextAlign.Center,
         )
     }
 }
@@ -419,6 +504,14 @@ private fun ActionChip(
             .padding(horizontal = 12.dp, vertical = 11.dp),
     )
 }
+
+private fun wearCountdownVibrator(context: Context): Vibrator? =
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+        context.getSystemService(VibratorManager::class.java)?.defaultVibrator
+    } else {
+        @Suppress("DEPRECATION")
+        context.getSystemService(Context.VIBRATOR_SERVICE) as? Vibrator
+    }
 
 private fun requiredPrimaryExercisePermissions(gpsEnabled: Boolean): List<String> = buildList {
     add(Manifest.permission.ACTIVITY_RECOGNITION)
