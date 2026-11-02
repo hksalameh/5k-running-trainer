@@ -11,7 +11,7 @@ concurrency:
   cancel-in-progress: true
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   build:
@@ -69,3 +69,16 @@ jobs:
           name: rakdatak-wear-debug
           path: wear/build/outputs/apk/debug/wear-debug.apk
           if-no-files-found: error
+
+      - name: Publish downloadable phone test APK
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG="phone-v0.4.5"
+          APK="app/build/outputs/apk/debug/app-debug.apk#rakdatak-phone-0.4.5.apk"
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" "$APK" --clobber
+          else
+            gh release create "$TAG" "$APK" --target "$GITHUB_SHA" --title "ركضتك - هاتف 0.4.5" --notes "نسخة هاتف تجريبية؛ بدون رسوم أو إعلانات. تُثبّت خارج المتجر للتجربة." --prerelease
+          fi

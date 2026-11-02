@@ -33,7 +33,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.rakdatak.app.PhoneWorkoutCoachEffect
 import com.rakdatak.app.wear.rememberWearLiveMetrics
 import com.rakdatak.app.workout.rememberPhoneWorkoutMetrics
 import com.rakdatak.core.training.WorkoutSessionSnapshot
@@ -53,20 +52,12 @@ fun WorkoutScreen(
     plannedDurationSeconds: Int,
     initialDistanceMeters: Double,
     gpsTrackingEnabled: Boolean,
-    soundCuesEnabled: Boolean,
-    vibrationEnabled: Boolean,
     keepScreenOn: Boolean,
     onDistanceChanged: (Double) -> Unit,
     onPauseResume: () -> Unit,
     onBackToHome: () -> Unit,
     onFinish: () -> Unit,
 ) {
-    PhoneWorkoutCoachEffect(
-        snapshot = snapshot,
-        soundCuesEnabled = soundCuesEnabled,
-        vibrationEnabled = vibrationEnabled,
-    )
-
     val watch = rememberWearLiveMetrics()
     val watchFresh = watch.isFresh()
     val watchDistance = watch.distanceMeters?.takeIf { watchFresh } ?: 0.0

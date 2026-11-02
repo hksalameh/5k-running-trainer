@@ -38,6 +38,7 @@ class PhoneWorkoutCoach(context: Context) : TextToSpeech.OnInitListener, AutoClo
     private val tts = TextToSpeech(appContext, this)
 
     private var ready = false
+    private var pendingFirstCue: String? = null
     private var lastPhaseIndex = -1
     private var oneMinuteCuePhase = -1
     private var tenSecondCuePhase = -1
@@ -68,6 +69,12 @@ class PhoneWorkoutCoach(context: Context) : TextToSpeech.OnInitListener, AutoClo
         val result = tts.setLanguage(Locale("ar"))
         ready = result != TextToSpeech.LANG_MISSING_DATA &&
             result != TextToSpeech.LANG_NOT_SUPPORTED
+        if (ready) {
+            pendingFirstCue?.let { pending ->
+                pendingFirstCue = null
+                speak(pending)
+            }
+        }
     }
 
     fun onSnapshot(
@@ -96,7 +103,8 @@ class PhoneWorkoutCoach(context: Context) : TextToSpeech.OnInitListener, AutoClo
         }
 
         if (
-            snapshot.phaseRemainingSeconds == 60 &&
+            snapshot.currentPhase.durationSeconds > 60 &&
+            snapshot.phaseRemainingSeconds in 11..60 &&
             oneMinuteCuePhase != snapshot.phaseIndex
         ) {
             oneMinuteCuePhase = snapshot.phaseIndex
@@ -104,7 +112,7 @@ class PhoneWorkoutCoach(context: Context) : TextToSpeech.OnInitListener, AutoClo
         }
 
         if (
-            snapshot.phaseRemainingSeconds == 10 &&
+            snapshot.phaseRemainingSeconds in 1..10 &&
             tenSecondCuePhase != snapshot.phaseIndex
         ) {
             tenSecondCuePhase = snapshot.phaseIndex
@@ -120,7 +128,10 @@ class PhoneWorkoutCoach(context: Context) : TextToSpeech.OnInitListener, AutoClo
     }
 
     private fun speak(text: String) {
-        if (!ready) return
+        if (!ready) {
+            pendingFirstCue = text
+            return
+        }
         audioManager.requestAudioFocus(focusRequest)
         val utteranceId = "rakdatak-${utteranceCounter.incrementAndGet()}"
         tts.speak(text, TextToSpeech.QUEUE_FLUSH, null, utteranceId)

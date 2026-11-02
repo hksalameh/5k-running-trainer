@@ -179,6 +179,13 @@ private fun RakdatakApp(
     var screen by remember { mutableStateOf(AppScreen.HOME) }
     var sessionRecorded by remember { mutableStateOf(false) }
 
+    // Keep audio coaching alive when the workout view transitions to the summary.
+    PhoneWorkoutCoachEffect(
+        snapshot = snapshot,
+        soundCuesEnabled = settings.soundCuesEnabled,
+        vibrationEnabled = settings.vibrationEnabled,
+    )
+
     val hasActiveWorkout = snapshot.status == WorkoutSessionStatus.RUNNING ||
         snapshot.status == WorkoutSessionStatus.PAUSED
     val historyEntries = remember(screen, progress.savedWorkouts) {
@@ -284,8 +291,6 @@ private fun RakdatakApp(
             plannedDurationSeconds = plan.totalDurationSeconds,
             initialDistanceMeters = distanceMeters,
             gpsTrackingEnabled = profile.trainingEnvironment != TrainingEnvironment.TREADMILL,
-            soundCuesEnabled = settings.soundCuesEnabled,
-            vibrationEnabled = settings.vibrationEnabled,
             keepScreenOn = settings.keepScreenOnDuringWorkout,
             onDistanceChanged = { updatedDistance ->
                 if (updatedDistance > distanceMeters) {

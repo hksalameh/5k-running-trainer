@@ -173,7 +173,7 @@ fun SettingsScreen(
                         color = Black,
                     )
                     Text(
-                        text = "نسخة تجريبية 0.4.1",
+                        text = "نسخة تجريبية 0.4.5",
                         style = MaterialTheme.typography.bodyMedium,
                         color = Gray,
                     )
