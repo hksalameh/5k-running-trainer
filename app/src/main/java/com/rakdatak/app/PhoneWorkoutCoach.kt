@@ -43,6 +43,7 @@ class PhoneWorkoutCoach(context: Context) : TextToSpeech.OnInitListener, AutoClo
     private var oneMinuteCuePhase = -1
     private var tenSecondCuePhase = -1
     private var completionAnnounced = false
+    private var needsSessionReset = false
 
     init {
         tts.setAudioAttributes(audioAttributes)
@@ -82,7 +83,13 @@ class PhoneWorkoutCoach(context: Context) : TextToSpeech.OnInitListener, AutoClo
         soundCuesEnabled: Boolean,
         vibrationEnabled: Boolean,
     ) {
+        if (snapshot.status == WorkoutSessionStatus.STOPPED) {
+            needsSessionReset = true
+            return
+        }
+
         if (snapshot.status == WorkoutSessionStatus.COMPLETED) {
+            needsSessionReset = true
             if (!completionAnnounced) {
                 completionAnnounced = true
                 if (vibrationEnabled) vibrateFinished()
@@ -92,6 +99,15 @@ class PhoneWorkoutCoach(context: Context) : TextToSpeech.OnInitListener, AutoClo
         }
 
         if (snapshot.status != WorkoutSessionStatus.RUNNING) return
+
+        if (needsSessionReset || (snapshot.phaseIndex == 0 &&
+                snapshot.totalElapsedSeconds == 0 && lastPhaseIndex > 0)) {
+            lastPhaseIndex = -1
+            oneMinuteCuePhase = -1
+            tenSecondCuePhase = -1
+            completionAnnounced = false
+            needsSessionReset = false
+        }
 
         if (snapshot.phaseIndex != lastPhaseIndex) {
             val isFirstPhase = lastPhaseIndex == -1
