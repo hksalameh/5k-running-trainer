@@ -15,6 +15,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -42,6 +43,7 @@ fun SettingsScreen(
     onOpenProfileSettings: () -> Unit,
     onOpenTrainingSchedule: () -> Unit,
     onSoundCuesChanged: (Boolean) -> Unit,
+    onWorkoutVoiceChanged: (WorkoutVoice) -> Unit,
     onVibrationChanged: (Boolean) -> Unit,
     onKeepScreenOnChanged: (Boolean) -> Unit,
 ) {
@@ -88,6 +90,12 @@ fun SettingsScreen(
                 subtitle = "تنبيه صوتي عند الانتقال بين المشي والركض والتهدئة.",
                 checked = settings.soundCuesEnabled,
                 onCheckedChange = onSoundCuesChanged,
+            )
+
+            VoiceChoiceCard(
+                selected = settings.workoutVoice,
+                enabled = settings.soundCuesEnabled,
+                onSelected = onWorkoutVoiceChanged,
             )
 
             SettingToggleCard(
@@ -173,16 +181,66 @@ fun SettingsScreen(
                         color = Black,
                     )
                     Text(
-                        text = "نسخة تجريبية 0.4.5",
+                        text = "نسخة تجريبية 0.4.8",
                         style = MaterialTheme.typography.bodyMedium,
                         color = Gray,
                     )
                     Text(
-                        text = "تتبع GPS، حفظ التمرين، مواعيد التدريب، وبيانات النبض المباشرة من Wear OS.",
+                        text = "تتبع GPS، حفظ التمرين، مواعيد التدريب، واختيار صوت التوجيهات.",
                         style = MaterialTheme.typography.bodySmall,
                         color = Gray,
                     )
                 }
+            }
+        }
+    }
+}
+
+@Composable
+private fun VoiceChoiceCard(
+    selected: WorkoutVoice,
+    enabled: Boolean,
+    onSelected: (WorkoutVoice) -> Unit,
+) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(20.dp),
+        colors = CardDefaults.cardColors(containerColor = Light),
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(18.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            Text(
+                text = "صوت المدرب",
+                style = MaterialTheme.typography.titleMedium,
+                color = Black,
+            )
+            Text(
+                text = "اختر الصوت الطبيعي الذي تسمعه أثناء مراحل التدريب.",
+                style = MaterialTheme.typography.bodySmall,
+                color = Gray,
+            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                FilterChip(
+                    selected = selected == WorkoutVoice.MALE,
+                    onClick = { onSelected(WorkoutVoice.MALE) },
+                    enabled = enabled,
+                    label = { Text("ذكر") },
+                    modifier = Modifier.weight(1f),
+                )
+                FilterChip(
+                    selected = selected == WorkoutVoice.FEMALE,
+                    onClick = { onSelected(WorkoutVoice.FEMALE) },
+                    enabled = enabled,
+                    label = { Text("أنثى") },
+                    modifier = Modifier.weight(1f),
+                )
             }
         }
     }
