@@ -184,6 +184,7 @@ private fun RakdatakApp(
     PhoneWorkoutCoachEffect(
         snapshot = snapshot,
         soundCuesEnabled = settings.soundCuesEnabled,
+        workoutVoice = settings.workoutVoice,
         vibrationEnabled = settings.vibrationEnabled,
     )
 
@@ -395,6 +396,9 @@ private fun RakdatakApp(
             onOpenTrainingSchedule = { screen = AppScreen.SCHEDULE },
             onSoundCuesChanged = { enabled ->
                 scope.launch { settingsRepository.setSoundCuesEnabled(enabled) }
+            },
+            onWorkoutVoiceChanged = { voice ->
+                scope.launch { settingsRepository.setWorkoutVoice(voice) }
             },
             onVibrationChanged = { enabled ->
                 scope.launch { settingsRepository.setVibrationEnabled(enabled) }
