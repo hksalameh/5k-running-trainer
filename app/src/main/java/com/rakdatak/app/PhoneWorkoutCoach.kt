@@ -20,6 +20,7 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
 import androidx.compose.ui.platform.LocalContext
+import com.rakdatak.app.settings.WorkoutVoice
 import com.rakdatak.core.training.WorkoutSessionSnapshot
 import com.rakdatak.core.training.WorkoutSessionStatus
 import com.rakdatak.core.training.model.WorkoutPhase
@@ -38,14 +39,26 @@ private data class VoiceClip(
     val durationMs: Long get() = (endMs - startMs).coerceAtLeast(100).toLong()
 }
 
+private data class VoicePackSpec(
+    val filename: String,
+    val url: String,
+    val clips: Map<String, VoiceClip>,
+)
+
 /**
  * Arabic workout coach.
  *
- * Primary path: a cached natural neural-voice pack, downloaded once and replayed offline.
- * Fallback path: Android TTS for unsupported durations or when the pack is not available yet.
+ * Primary path: a cached natural neural voice pack, downloaded once and replayed offline.
+ * Fallback path: Android TTS if the selected natural pack is not ready.
  */
-class PhoneWorkoutCoach(context: Context) : TextToSpeech.OnInitListener, AutoCloseable {
+class PhoneWorkoutCoach(
+    context: Context,
+    private val workoutVoice: WorkoutVoice,
+) : TextToSpeech.OnInitListener, AutoCloseable {
     private val appContext = context.applicationContext
+    private val voicePack = if (workoutVoice == WorkoutVoice.FEMALE) FEMALE_PACK else MALE_PACK
+    private val voicePackFile = File(appContext.filesDir, voicePack.filename)
+
     private val audioManager = appContext.getSystemService(AudioManager::class.java)
     private val audioAttributes = AudioAttributes.Builder()
         .setUsage(AudioAttributes.USAGE_ASSISTANCE_NAVIGATION_GUIDANCE)
@@ -62,7 +75,6 @@ class PhoneWorkoutCoach(context: Context) : TextToSpeech.OnInitListener, AutoClo
     private val toneGenerator = ToneGenerator(AudioManager.STREAM_MUSIC, 90)
     private val mainHandler = Handler(Looper.getMainLooper())
     private val voiceExecutor = Executors.newSingleThreadExecutor()
-    private val voicePackFile = File(appContext.filesDir, VOICE_PACK_FILENAME)
 
     @Volatile
     private var naturalPlayer: MediaPlayer? = null
@@ -165,32 +177,44 @@ class PhoneWorkoutCoach(context: Context) : TextToSpeech.OnInitListener, AutoClo
 
         if (
             snapshot.currentPhase.durationSeconds > 60 &&
-            snapshot.phaseRemainingSeconds in 55..60 &&
-            oneMinuteCuePhase != snapshot.phaseIndex
+            oneMinuteCuePhase != snapshot.phaseIndex &&
+            shouldStartAlignedCue(
+                remainingSeconds = snapshot.phaseRemainingSeconds,
+                targetRemainingSeconds = 60,
+                clipKey = CLIP_ONE_MINUTE,
+            )
         ) {
             oneMinuteCuePhase = snapshot.phaseIndex
             if (soundCuesEnabled) {
-                speakCue(
+                speakCueAligned(
                     clipKey = CLIP_ONE_MINUTE,
                     fallbackText = "باقي دقيقة واحدة على هذه المرحلة.",
+                    currentRemainingSeconds = snapshot.phaseRemainingSeconds,
+                    targetRemainingSeconds = 60,
                 )
             }
         }
 
         if (
-            snapshot.phaseRemainingSeconds in 8..10 &&
-            tenSecondCuePhase != snapshot.phaseIndex
+            tenSecondCuePhase != snapshot.phaseIndex &&
+            shouldStartAlignedCue(
+                remainingSeconds = snapshot.phaseRemainingSeconds,
+                targetRemainingSeconds = 10,
+                clipKey = if (snapshot.nextPhase == null) CLIP_FINISH_TEN_SECONDS else CLIP_TRANSITION,
+            )
         ) {
             tenSecondCuePhase = snapshot.phaseIndex
             if (soundCuesEnabled) {
                 val finishing = snapshot.nextPhase == null
-                speakCue(
+                speakCueAligned(
                     clipKey = if (finishing) CLIP_FINISH_TEN_SECONDS else CLIP_TRANSITION,
                     fallbackText = if (finishing) {
                         "استعد. باقي عشر ثوانٍ وينتهي التمرين."
                     } else {
                         "استعد. المرحلة التالية بعد عشر ثوانٍ."
                     },
+                    currentRemainingSeconds = snapshot.phaseRemainingSeconds,
+                    targetRemainingSeconds = 10,
                 )
             }
         }
@@ -205,51 +229,87 @@ class PhoneWorkoutCoach(context: Context) : TextToSpeech.OnInitListener, AutoClo
         }
     }
 
+    private fun shouldStartAlignedCue(
+        remainingSeconds: Int,
+        targetRemainingSeconds: Int,
+        clipKey: String,
+    ): Boolean {
+        val naturalReady = naturalPlayer != null && voicePack.clips[clipKey] != null
+        return if (naturalReady) {
+            remainingSeconds in (targetRemainingSeconds + 1)..(targetRemainingSeconds + ALIGNMENT_LOOKAHEAD_SECONDS)
+        } else {
+            remainingSeconds == targetRemainingSeconds
+        }
+    }
+
+    private fun speakCueAligned(
+        clipKey: String,
+        fallbackText: String,
+        currentRemainingSeconds: Int,
+        targetRemainingSeconds: Int,
+    ) {
+        val clip = voicePack.clips[clipKey]
+        if (clip != null && naturalPlayer != null) {
+            val millisecondsUntilTarget =
+                (currentRemainingSeconds - targetRemainingSeconds).coerceAtLeast(0) * 1_000L
+            val delayMs = (millisecondsUntilTarget - clip.durationMs).coerceAtLeast(0L)
+            if (playNaturalClip(clipKey, delayMs)) return
+        }
+        speakWithTts(fallbackText)
+    }
+
     private fun speakCue(
         clipKey: String?,
         fallbackText: String,
     ) {
-        if (clipKey != null && playNaturalClip(clipKey)) return
+        if (clipKey != null && playNaturalClip(clipKey, 0L)) return
         speakWithTts(fallbackText)
     }
 
-    private fun playNaturalClip(key: String): Boolean {
-        val clip = VOICE_CLIPS[key] ?: return false
+    private fun playNaturalClip(
+        key: String,
+        delayMs: Long,
+    ): Boolean {
+        val clip = voicePack.clips[key] ?: return false
         val player = naturalPlayer ?: return false
         if (closed) return false
 
-        mainHandler.post {
-            if (closed) return@post
-            try {
-                playbackToken += 1
-                val token = playbackToken
-                audioManager.requestAudioFocus(focusRequest)
+        playbackToken += 1
+        val token = playbackToken
 
-                if (player.isPlaying) player.pause()
+        mainHandler.postDelayed(
+            {
+                if (closed || playbackToken != token) return@postDelayed
+                try {
+                    audioManager.requestAudioFocus(focusRequest)
 
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                    player.seekTo(clip.startMs.toLong(), MediaPlayer.SEEK_CLOSEST)
-                } else {
-                    @Suppress("DEPRECATION")
-                    player.seekTo(clip.startMs)
-                }
-                player.start()
+                    if (player.isPlaying) player.pause()
 
-                mainHandler.postDelayed(
-                    {
-                        if (!closed && playbackToken == token) {
-                            runCatching {
-                                if (player.isPlaying) player.pause()
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                        player.seekTo(clip.startMs.toLong(), MediaPlayer.SEEK_CLOSEST)
+                    } else {
+                        @Suppress("DEPRECATION")
+                        player.seekTo(clip.startMs)
+                    }
+                    player.start()
+
+                    mainHandler.postDelayed(
+                        {
+                            if (!closed && playbackToken == token) {
+                                runCatching {
+                                    if (player.isPlaying) player.pause()
+                                }
+                                abandonAudioFocus()
                             }
-                            abandonAudioFocus()
-                        }
-                    },
-                    clip.durationMs + 120L,
-                )
-            } catch (_: Throwable) {
-                // The TTS fallback is used on the next cue if the cached player becomes unavailable.
-            }
-        }
+                        },
+                        clip.durationMs + 80L,
+                    )
+                } catch (_: Throwable) {
+                    // Future cues will fall back to Android TTS if local playback becomes unavailable.
+                }
+            },
+            delayMs,
+        )
         return true
     }
 
@@ -279,10 +339,10 @@ class PhoneWorkoutCoach(context: Context) : TextToSpeech.OnInitListener, AutoClo
     }
 
     private fun downloadVoicePack() {
-        val temporaryFile = File(appContext.filesDir, "$VOICE_PACK_FILENAME.tmp")
+        val temporaryFile = File(appContext.filesDir, "${voicePack.filename}.tmp")
         runCatching { temporaryFile.delete() }
 
-        val connection = (URL(VOICE_PACK_URL).openConnection() as HttpURLConnection).apply {
+        val connection = (URL(voicePack.url).openConnection() as HttpURLConnection).apply {
             connectTimeout = 10_000
             readTimeout = 20_000
             instanceFollowRedirects = true
@@ -315,7 +375,7 @@ class PhoneWorkoutCoach(context: Context) : TextToSpeech.OnInitListener, AutoClo
         if (bestVoice != null && tts.setVoice(bestVoice) == TextToSpeech.SUCCESS) {
             tts.language = bestVoice.locale
             tts.setSpeechRate(0.90f)
-            tts.setPitch(0.98f)
+            tts.setPitch(if (workoutVoice == WorkoutVoice.FEMALE) 1.06f else 0.98f)
             return true
         }
 
@@ -332,7 +392,7 @@ class PhoneWorkoutCoach(context: Context) : TextToSpeech.OnInitListener, AutoClo
                 result != TextToSpeech.LANG_NOT_SUPPORTED
             ) {
                 tts.setSpeechRate(0.90f)
-                tts.setPitch(0.98f)
+                tts.setPitch(if (workoutVoice == WorkoutVoice.FEMALE) 1.06f else 0.98f)
                 return true
             }
         }
@@ -497,9 +557,7 @@ class PhoneWorkoutCoach(context: Context) : TextToSpeech.OnInitListener, AutoClo
     }
 
     private companion object {
-        const val VOICE_PACK_FILENAME = "rakdatak_ar_natural_v1.wav"
-        const val VOICE_PACK_URL =
-            "https://resource2.heygen.ai/text_to_speech/90f75bc626b143ae832bc35280491ae2/02733a92a0db457aadf63b235d2aa457/id=52ab6acc-b736-44f4-89ab-c2386b36f621.wav"
+        const val ALIGNMENT_LOOKAHEAD_SECONDS = 5
 
         const val CLIP_WARMUP_180 = "warmup_180"
         const val CLIP_TRANSITION = "transition"
@@ -523,28 +581,60 @@ class PhoneWorkoutCoach(context: Context) : TextToSpeech.OnInitListener, AutoClo
         const val CLIP_FINISH_TEN_SECONDS = "finish_10"
         const val CLIP_FINISHED = "finished"
 
-        val VOICE_CLIPS = mapOf(
-            CLIP_WARMUP_180 to VoiceClip(250, 3_500),
-            CLIP_TRANSITION to VoiceClip(3_570, 7_360),
-            CLIP_ONE_MINUTE to VoiceClip(7_390, 10_080),
-            CLIP_RUN_60 to VoiceClip(10_050, 12_640),
-            CLIP_RUN_90 to VoiceClip(12_740, 16_260),
-            CLIP_RUN_180 to VoiceClip(16_380, 18_930),
-            CLIP_RUN_300 to VoiceClip(19_030, 21_640),
-            CLIP_RUN_480 to VoiceClip(21_750, 24_370),
-            CLIP_RUN_600 to VoiceClip(24_400, 27_000),
-            CLIP_RUN_1200 to VoiceClip(27_050, 29_600),
-            CLIP_RUN_1500 to VoiceClip(29_610, 32_740),
-            CLIP_RUN_1680 to VoiceClip(32_840, 36_060),
-            CLIP_RUN_1800 to VoiceClip(36_110, 38_980),
-            CLIP_WALK_90 to VoiceClip(39_030, 42_210),
-            CLIP_WALK_120 to VoiceClip(42_220, 44_610),
-            CLIP_WALK_150 to VoiceClip(44_730, 47_980),
-            CLIP_WALK_180 to VoiceClip(48_140, 50_670),
-            CLIP_WALK_300 to VoiceClip(50_790, 53_250),
-            CLIP_COOLDOWN_180 to VoiceClip(53_400, 56_550),
-            CLIP_FINISH_TEN_SECONDS to VoiceClip(56_590, 60_790),
-            CLIP_FINISHED to VoiceClip(60_970, 63_180),
+        val MALE_PACK = VoicePackSpec(
+            filename = "rakdatak_ar_male_v1.wav",
+            url = "https://resource2.heygen.ai/text_to_speech/90f75bc626b143ae832bc35280491ae2/02733a92a0db457aadf63b235d2aa457/id=52ab6acc-b736-44f4-89ab-c2386b36f621.wav",
+            clips = mapOf(
+                CLIP_WARMUP_180 to VoiceClip(250, 3_500),
+                CLIP_TRANSITION to VoiceClip(3_570, 7_360),
+                CLIP_ONE_MINUTE to VoiceClip(7_390, 10_080),
+                CLIP_RUN_60 to VoiceClip(10_050, 12_640),
+                CLIP_RUN_90 to VoiceClip(12_740, 16_260),
+                CLIP_RUN_180 to VoiceClip(16_380, 18_930),
+                CLIP_RUN_300 to VoiceClip(19_030, 21_640),
+                CLIP_RUN_480 to VoiceClip(21_750, 24_370),
+                CLIP_RUN_600 to VoiceClip(24_400, 27_000),
+                CLIP_RUN_1200 to VoiceClip(27_050, 29_600),
+                CLIP_RUN_1500 to VoiceClip(29_610, 32_740),
+                CLIP_RUN_1680 to VoiceClip(32_840, 36_060),
+                CLIP_RUN_1800 to VoiceClip(36_110, 38_980),
+                CLIP_WALK_90 to VoiceClip(39_030, 42_210),
+                CLIP_WALK_120 to VoiceClip(42_220, 44_610),
+                CLIP_WALK_150 to VoiceClip(44_730, 47_980),
+                CLIP_WALK_180 to VoiceClip(48_140, 50_670),
+                CLIP_WALK_300 to VoiceClip(50_790, 53_250),
+                CLIP_COOLDOWN_180 to VoiceClip(53_400, 56_550),
+                CLIP_FINISH_TEN_SECONDS to VoiceClip(56_590, 60_790),
+                CLIP_FINISHED to VoiceClip(60_970, 63_180),
+            ),
+        )
+
+        val FEMALE_PACK = VoicePackSpec(
+            filename = "rakdatak_ar_female_v1.wav",
+            url = "https://resource2.heygen.ai/text_to_speech/90f75bc626b143ae832bc35280491ae2/1776ddbd05374fa480e92f0297bbc67e/id=204d91d1-60d4-4948-a616-6697873228ce.wav",
+            clips = mapOf(
+                CLIP_WARMUP_180 to VoiceClip(220, 3_340),
+                CLIP_TRANSITION to VoiceClip(3_400, 7_160),
+                CLIP_ONE_MINUTE to VoiceClip(7_300, 9_780),
+                CLIP_RUN_60 to VoiceClip(9_780, 12_390),
+                CLIP_RUN_90 to VoiceClip(12_600, 15_720),
+                CLIP_RUN_180 to VoiceClip(15_840, 18_250),
+                CLIP_RUN_300 to VoiceClip(18_400, 20_710),
+                CLIP_RUN_480 to VoiceClip(20_790, 23_100),
+                CLIP_RUN_600 to VoiceClip(23_220, 25_480),
+                CLIP_RUN_1200 to VoiceClip(25_600, 28_020),
+                CLIP_RUN_1500 to VoiceClip(28_070, 30_910),
+                CLIP_RUN_1680 to VoiceClip(31_010, 33_970),
+                CLIP_RUN_1800 to VoiceClip(34_110, 36_510),
+                CLIP_WALK_90 to VoiceClip(36_580, 39_360),
+                CLIP_WALK_120 to VoiceClip(39_410, 41_510),
+                CLIP_WALK_150 to VoiceClip(41_640, 44_830),
+                CLIP_WALK_180 to VoiceClip(44_920, 47_020),
+                CLIP_WALK_300 to VoiceClip(47_080, 49_380),
+                CLIP_COOLDOWN_180 to VoiceClip(49_500, 52_320),
+                CLIP_FINISH_TEN_SECONDS to VoiceClip(52_370, 56_170),
+                CLIP_FINISHED to VoiceClip(56_300, 58_450),
+            ),
         )
     }
 }
@@ -553,10 +643,11 @@ class PhoneWorkoutCoach(context: Context) : TextToSpeech.OnInitListener, AutoClo
 fun PhoneWorkoutCoachEffect(
     snapshot: WorkoutSessionSnapshot,
     soundCuesEnabled: Boolean,
+    workoutVoice: WorkoutVoice,
     vibrationEnabled: Boolean,
 ) {
     val context = LocalContext.current
-    val coach = remember { PhoneWorkoutCoach(context) }
+    val coach = remember(context, workoutVoice) { PhoneWorkoutCoach(context, workoutVoice) }
 
     DisposableEffect(coach) {
         onDispose { coach.close() }
@@ -567,6 +658,7 @@ fun PhoneWorkoutCoachEffect(
         snapshot.phaseIndex,
         snapshot.phaseRemainingSeconds,
         soundCuesEnabled,
+        workoutVoice,
         vibrationEnabled,
     ) {
         coach.onSnapshot(
