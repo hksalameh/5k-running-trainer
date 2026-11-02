@@ -38,6 +38,7 @@ import com.rakdatak.app.schedule.UserTrainingSchedule
 import com.rakdatak.app.settings.AppSettings
 import com.rakdatak.app.settings.AppSettingsRepository
 import com.rakdatak.app.settings.SettingsScreen
+import com.rakdatak.app.ui.PreWorkoutCountdownScreen
 import com.rakdatak.app.ui.RakdatakHomeScreen
 import com.rakdatak.app.ui.WorkoutScreen
 import com.rakdatak.app.wear.PhoneWearController
@@ -53,6 +54,7 @@ import kotlinx.coroutines.launch
 
 private enum class AppScreen {
     HOME,
+    COUNTDOWN,
     WORKOUT,
     SUMMARY,
     HISTORY,
@@ -179,7 +181,6 @@ private fun RakdatakApp(
     var screen by remember { mutableStateOf(AppScreen.HOME) }
     var sessionRecorded by remember { mutableStateOf(false) }
 
-    // Keep audio coaching alive when the workout view transitions to the summary.
     PhoneWorkoutCoachEffect(
         snapshot = snapshot,
         soundCuesEnabled = settings.soundCuesEnabled,
@@ -254,16 +255,10 @@ private fun RakdatakApp(
             onStartWorkout = {
                 if (!profile.safetyReviewNeeded) {
                     engine = WorkoutSessionEngine(plan)
-                    snapshot = engine.start()
+                    snapshot = engine.snapshot()
                     distanceMeters = 0.0
                     sessionRecorded = false
-                    activeWorkoutRepository.save(snapshot, distanceMeters)
-                    wearController.start(
-                        planIndex = planIndex,
-                        elapsedSeconds = 0,
-                        gpsEnabled = profile.trainingEnvironment != TrainingEnvironment.TREADMILL,
-                    )
-                    screen = AppScreen.WORKOUT
+                    screen = AppScreen.COUNTDOWN
                 }
             },
             onResumeWorkout = {
@@ -284,6 +279,22 @@ private fun RakdatakApp(
             onOpenHistory = { screen = AppScreen.HISTORY },
             onOpenSettings = { screen = AppScreen.SETTINGS },
             onOpenSchedule = { screen = AppScreen.SCHEDULE },
+        )
+
+        AppScreen.COUNTDOWN -> PreWorkoutCountdownScreen(
+            firstPhase = plan.phases.first(),
+            soundCuesEnabled = settings.soundCuesEnabled,
+            vibrationEnabled = settings.vibrationEnabled,
+            onFinished = {
+                snapshot = engine.start()
+                activeWorkoutRepository.save(snapshot, distanceMeters)
+                wearController.start(
+                    planIndex = planIndex,
+                    elapsedSeconds = 0,
+                    gpsEnabled = profile.trainingEnvironment != TrainingEnvironment.TREADMILL,
+                )
+                screen = AppScreen.WORKOUT
+            },
         )
 
         AppScreen.WORKOUT -> WorkoutScreen(
