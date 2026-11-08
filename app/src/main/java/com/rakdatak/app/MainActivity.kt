@@ -40,6 +40,7 @@ import com.rakdatak.app.settings.AppSettingsRepository
 import com.rakdatak.app.settings.SettingsScreen
 import com.rakdatak.app.ui.PreWorkoutCountdownScreen
 import com.rakdatak.app.ui.RakdatakHomeScreen
+import com.rakdatak.app.ui.TrainingPlanOverviewScreen
 import com.rakdatak.app.ui.WorkoutScreen
 import com.rakdatak.app.wear.PhoneWearController
 import com.rakdatak.app.workout.ActiveWorkoutRepository
@@ -58,6 +59,7 @@ private enum class AppScreen {
     WORKOUT,
     SUMMARY,
     HISTORY,
+    PLAN,
     SETTINGS,
     PROFILE,
     SCHEDULE,
@@ -180,12 +182,25 @@ private fun RakdatakApp(
     }
     var screen by remember { mutableStateOf(AppScreen.HOME) }
     var sessionRecorded by remember { mutableStateOf(false) }
+    // Do not charge the next run/walk stage while its spoken instruction is playing.
+    var awaitingInstruction by remember { mutableStateOf(false) }
+    var instructionStartedAtMs by remember { mutableStateOf(0L) }
 
     PhoneWorkoutCoachEffect(
         snapshot = snapshot,
         soundCuesEnabled = settings.soundCuesEnabled,
         workoutVoice = settings.workoutVoice,
         vibrationEnabled = settings.vibrationEnabled,
+        onPhaseInstructionCompleted = {
+            if (awaitingInstruction) {
+                awaitingInstruction = false
+                if (screen == AppScreen.WORKOUT &&
+                    snapshot.status == WorkoutSessionStatus.RUNNING
+                ) {
+                    wearController.resume()
+                }
+            }
+        },
     )
 
     val hasActiveWorkout = snapshot.status == WorkoutSessionStatus.RUNNING ||
@@ -213,12 +228,34 @@ private fun RakdatakApp(
             while (screen == AppScreen.WORKOUT && snapshot.status == WorkoutSessionStatus.RUNNING) {
                 delay(250)
                 val now = SystemClock.elapsedRealtime()
+                if (awaitingInstruction) {
+                    // A failed/unavailable voice must never freeze the workout indefinitely.
+                    if (now - instructionStartedAtMs >= 15_000L) {
+                        awaitingInstruction = false
+                        wearController.resume()
+                    }
+                    lastTickRealtime = now
+                    continue
+                }
                 val elapsedWholeSeconds = ((now - lastTickRealtime) / 1_000L).toInt()
                 if (elapsedWholeSeconds <= 0) continue
 
+                val previousPhaseIndex = snapshot.phaseIndex
+                // If Android was suspended, stop at the phase boundary instead of
+                // skipping the spoken transition or consuming next-stage seconds.
+                val advance = minOf(elapsedWholeSeconds, snapshot.phaseRemainingSeconds.coerceAtLeast(1))
                 lastTickRealtime += elapsedWholeSeconds * 1_000L
-                snapshot = engine.tick(elapsedWholeSeconds)
+                snapshot = engine.tick(advance)
                 activeWorkoutRepository.save(snapshot, distanceMeters)
+
+                if (snapshot.status == WorkoutSessionStatus.RUNNING &&
+                    snapshot.phaseIndex != previousPhaseIndex &&
+                    settings.soundCuesEnabled
+                ) {
+                    awaitingInstruction = true
+                    instructionStartedAtMs = now
+                    wearController.pause()
+                }
 
                 if (snapshot.status == WorkoutSessionStatus.COMPLETED) {
                     if (!sessionRecorded) {
@@ -259,6 +296,7 @@ private fun RakdatakApp(
                     snapshot = engine.snapshot()
                     distanceMeters = 0.0
                     sessionRecorded = false
+                    awaitingInstruction = false
                     screen = AppScreen.COUNTDOWN
                 }
             },
@@ -278,6 +316,7 @@ private fun RakdatakApp(
                 screen = AppScreen.WORKOUT
             },
             onOpenHistory = { screen = AppScreen.HISTORY },
+            onOpenPlan = { screen = AppScreen.PLAN },
             onOpenSettings = { screen = AppScreen.SETTINGS },
             onOpenSchedule = { screen = AppScreen.SCHEDULE },
         )
@@ -288,18 +327,22 @@ private fun RakdatakApp(
             vibrationEnabled = settings.vibrationEnabled,
             onFinished = {
                 snapshot = engine.start()
+                awaitingInstruction = settings.soundCuesEnabled
+                instructionStartedAtMs = SystemClock.elapsedRealtime()
                 activeWorkoutRepository.save(snapshot, distanceMeters)
                 wearController.start(
                     planIndex = planIndex,
                     elapsedSeconds = 0,
                     gpsEnabled = profile.trainingEnvironment != TrainingEnvironment.TREADMILL,
                 )
+                if (awaitingInstruction) wearController.pause()
                 screen = AppScreen.WORKOUT
             },
         )
 
         AppScreen.WORKOUT -> WorkoutScreen(
             snapshot = snapshot,
+            awaitingInstruction = awaitingInstruction,
             plannedDurationSeconds = plan.totalDurationSeconds,
             initialDistanceMeters = distanceMeters,
             gpsTrackingEnabled = profile.trainingEnvironment != TrainingEnvironment.TREADMILL,
@@ -380,6 +423,12 @@ private fun RakdatakApp(
 
         AppScreen.HISTORY -> WorkoutHistoryScreen(
             entries = historyEntries,
+            onBack = { screen = AppScreen.HOME },
+        )
+
+        AppScreen.PLAN -> TrainingPlanOverviewScreen(
+            plans = plans,
+            currentIndex = planIndex,
             onBack = { screen = AppScreen.HOME },
         )
 
