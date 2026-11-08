@@ -14,8 +14,8 @@ import com.rakdatak.core.training.model.WorkoutPlan
  */
 object BaselinePlanFactory {
 
-    private const val DEFAULT_WARM_UP_SECONDS = 180
-    private const val DEFAULT_COOL_DOWN_SECONDS = 180
+    private const val DEFAULT_WARM_UP_SECONDS = 120
+    private const val DEFAULT_COOL_DOWN_SECONDS = 120
 
     fun create(
         warmUpSeconds: Int = DEFAULT_WARM_UP_SECONDS,
