@@ -526,14 +526,22 @@ class PhoneWorkoutCoach(
         toneGenerator.startTone(tone, 150)
     }
 
-    private fun speakWithTts(text: String) {
+    private fun speakWithTts(
+        text: String,
+        onComplete: (() -> Unit)? = null,
+    ) {
         if (!ready) {
             pendingFirstCue = text
+            pendingFirstCueCompletion = onComplete
             return
         }
         audioManager.requestAudioFocus(focusRequest)
-        val utteranceId = "rakdatak-${utteranceCounter.incrementAndGet()}"
-        tts.speak(text, TextToSpeech.QUEUE_FLUSH, null, utteranceId)
+        val utteranceId = "rakdatak-" + utteranceCounter.incrementAndGet()
+        activeUtteranceId = utteranceId
+        activeUtteranceCompletion = onComplete
+        if (tts.speak(text, TextToSpeech.QUEUE_FLUSH, null, utteranceId) == TextToSpeech.ERROR) {
+            finishSpokenUtterance(utteranceId)
+        }
     }
 
     private fun resetSessionCues() {
