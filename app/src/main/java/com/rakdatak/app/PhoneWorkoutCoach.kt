@@ -284,14 +284,16 @@ class PhoneWorkoutCoach(
     private fun speakCue(
         clipKey: String?,
         fallbackText: String,
+        onComplete: (() -> Unit)? = null,
     ) {
-        if (clipKey != null && playNaturalClip(clipKey, 0L)) return
-        speakWithTts(fallbackText)
+        if (clipKey != null && playNaturalClip(clipKey, 0L, onComplete)) return
+        speakWithTts(fallbackText, onComplete)
     }
 
     private fun playNaturalClip(
         key: String,
         delayMs: Long,
+        onComplete: (() -> Unit)? = null,
     ): Boolean {
         val clip = voicePack.clips[key] ?: return false
         val player = naturalPlayer ?: return false
@@ -323,12 +325,14 @@ class PhoneWorkoutCoach(
                                     if (player.isPlaying) player.pause()
                                 }
                                 abandonAudioFocus()
+                                onComplete?.invoke()
                             }
                         },
                         clip.durationMs + 80L,
                     )
                 } catch (_: Throwable) {
-                    // Future cues will fall back to Android TTS if local playback becomes unavailable.
+                    // A broken audio player must never leave the next interval frozen.
+                    onComplete?.invoke()
                 }
             },
             delayMs,
@@ -577,6 +581,8 @@ class PhoneWorkoutCoach(
         toneGenerator.release()
         tts.stop()
         tts.shutdown()
+        pendingFirstCueCompletion = null
+        activeUtteranceCompletion = null
     }
 
     private companion object {
@@ -668,8 +674,10 @@ fun PhoneWorkoutCoachEffect(
     soundCuesEnabled: Boolean,
     workoutVoice: WorkoutVoice,
     vibrationEnabled: Boolean,
+    onPhaseInstructionCompleted: () -> Unit,
 ) {
     val context = LocalContext.current
+    val callback by rememberUpdatedState(onPhaseInstructionCompleted)
     val coach = remember(context, workoutVoice) { PhoneWorkoutCoach(context, workoutVoice) }
 
     DisposableEffect(coach) {
@@ -688,6 +696,7 @@ fun PhoneWorkoutCoachEffect(
             snapshot = snapshot,
             soundCuesEnabled = soundCuesEnabled,
             vibrationEnabled = vibrationEnabled,
+            onPhaseInstructionCompleted = { callback() },
         )
     }
 }
