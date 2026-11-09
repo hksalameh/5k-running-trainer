@@ -223,7 +223,9 @@ private fun RakdatakApp(
             for (command in PhoneCommandInbox.pending(syncContext)) {
                 val valid = WorkoutSync.accepts(command, wearController.sessionId, WorkoutOwner.PHONE,
                     WorkoutOwner.PHONE, syncNow)
+                var applied = false
                 if (valid && snapshot.status in setOf(WorkoutSessionStatus.RUNNING, WorkoutSessionStatus.PAUSED)) {
+                    applied = true
                     when (command.action) {
                         "PAUSE" -> snapshot = engine.pause()
                         "RESUME" -> {
@@ -248,7 +250,7 @@ private fun RakdatakApp(
                     }
                     activeWorkoutRepository.save(snapshot, distanceMeters)
                 }
-                PhoneCommandInbox.acknowledge(syncContext, command)
+                PhoneCommandInbox.acknowledge(syncContext, command, applied = applied)
             }
             delay(500)
         }

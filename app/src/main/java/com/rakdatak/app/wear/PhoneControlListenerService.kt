@@ -25,12 +25,29 @@ class PhoneControlListenerService : WearableListenerService() {
 }
 
 object PhoneCommandInbox {
+    private const val LAST_PROCESSED_COMMAND = "last_processed_watch_command_at"
+
     fun pending(context: Context): List<WorkoutCommand> = synchronized(this) {
-        context.getSharedPreferences("phone_workout_sync", Context.MODE_PRIVATE)
-            .getStringSet("inbox", emptySet()).orEmpty().mapNotNull(WorkoutSync::parse).sortedBy { it.sentAt }
-    }
-    fun acknowledge(context: Context, command: WorkoutCommand) = synchronized(this) {
         val prefs = context.getSharedPreferences("phone_workout_sync", Context.MODE_PRIVATE)
-        prefs.edit().putStringSet("inbox", prefs.getStringSet("inbox", emptySet()).orEmpty() - command.encode()).commit()
+        val lastProcessed = prefs.getLong(LAST_PROCESSED_COMMAND, 0L)
+        prefs.getStringSet("inbox", emptySet()).orEmpty()
+            .mapNotNull(WorkoutSync::parse)
+            .filter { it.sentAt > lastProcessed }
+            .sortedBy { it.sentAt }
+    }
+
+    fun acknowledge(context: Context, command: WorkoutCommand, applied: Boolean) = synchronized(this) {
+        val prefs = context.getSharedPreferences("phone_workout_sync", Context.MODE_PRIVATE)
+        val editor = prefs.edit().putStringSet(
+            "inbox",
+            prefs.getStringSet("inbox", emptySet()).orEmpty() - command.encode(),
+        )
+        if (applied) {
+            editor.putLong(
+                LAST_PROCESSED_COMMAND,
+                maxOf(prefs.getLong(LAST_PROCESSED_COMMAND, 0L), command.sentAt),
+            )
+        }
+        editor.commit()
     }
 }
