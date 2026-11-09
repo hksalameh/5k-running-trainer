@@ -10,6 +10,8 @@ data class PersistedWorkoutState(
     val paused: Boolean,
     val distanceMeters: Double,
     val lastUpdatedEpochMillis: Long,
+    /** Version 0: original 180s warm-up/cool-down; version 1: 120s default. */
+    val timelineVersion: Int,
 )
 
 /**
@@ -34,6 +36,7 @@ class ActiveWorkoutRepository(context: Context) {
                 KEY_LAST_UPDATED_EPOCH_MILLIS,
                 System.currentTimeMillis(),
             ),
+            timelineVersion = prefs.getInt(KEY_TIMELINE_VERSION, 0),
         )
     }
 
@@ -50,6 +53,7 @@ class ActiveWorkoutRepository(context: Context) {
             .putBoolean(KEY_ACTIVE, true)
             .putInt(KEY_ELAPSED_SECONDS, snapshot.totalElapsedSeconds.coerceAtLeast(0))
             .putBoolean(KEY_PAUSED, snapshot.status == WorkoutSessionStatus.PAUSED)
+            .putInt(KEY_TIMELINE_VERSION, CURRENT_TIMELINE_VERSION)
             .putLong(
                 KEY_DISTANCE_CENTIMETERS,
                 (distanceMeters.coerceAtLeast(0.0) * 100.0).roundToLong(),
@@ -63,6 +67,8 @@ class ActiveWorkoutRepository(context: Context) {
     }
 
     companion object {
+        const val CURRENT_TIMELINE_VERSION = 1
+        private const val KEY_TIMELINE_VERSION = "timeline_version"
         private const val PREFS_NAME = "active_workout"
         private const val KEY_ACTIVE = "active"
         private const val KEY_ELAPSED_SECONDS = "elapsed_seconds"

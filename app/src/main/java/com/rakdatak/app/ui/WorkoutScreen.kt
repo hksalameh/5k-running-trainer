@@ -49,6 +49,7 @@ private val DarkPanel = Color(0xFF202020)
 @Composable
 fun WorkoutScreen(
     snapshot: WorkoutSessionSnapshot,
+    awaitingInstruction: Boolean,
     plannedDurationSeconds: Int,
     initialDistanceMeters: Double,
     gpsTrackingEnabled: Boolean,
@@ -139,7 +140,11 @@ fun WorkoutScreen(
                 fontSize = 64.sp,
             )
             Text(
-                text = "متبقي لهذه المرحلة",
+                text = if (awaitingInstruction) {
+                    "يبدأ عدّ المرحلة بعد انتهاء التوجيه الصوتي"
+                } else {
+                    "متبقي لهذه المرحلة"
+                },
                 color = LightText,
                 style = MaterialTheme.typography.bodyLarge,
             )

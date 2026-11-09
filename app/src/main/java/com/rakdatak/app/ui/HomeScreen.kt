@@ -66,6 +66,7 @@ fun RakdatakHomeScreen(
     onStartWorkout: () -> Unit,
     onResumeWorkout: () -> Unit,
     onOpenHistory: () -> Unit,
+    onOpenPlan: () -> Unit,
     onOpenSettings: () -> Unit,
     onOpenSchedule: () -> Unit,
 ) {
@@ -112,6 +113,20 @@ fun RakdatakHomeScreen(
             }
 
             GoalCard(planProgress = planProgress)
+
+            OutlinedButton(
+                onClick = onOpenPlan,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(56.dp),
+                shape = RoundedCornerShape(18.dp),
+            ) {
+                Text(
+                    "خطتك الكاملة • أنت في الأسبوع " + currentPlan.week +
+                        "، الجلسة " + currentPlan.session,
+                    color = Black,
+                )
+            }
 
             WatchStatusCard(
                 connected = watchConnected,
