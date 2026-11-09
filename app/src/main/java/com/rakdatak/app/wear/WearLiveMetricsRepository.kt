@@ -13,6 +13,9 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 
 data class WearLiveMetrics(
+    val sessionId: String? = null,
+    val owner: String? = null,
+    val planIndex: Int = -1,
     val status: String? = null,
     val phase: String? = null,
     val phaseRemainingSeconds: Int = 0,
@@ -23,7 +26,7 @@ data class WearLiveMetrics(
     val updatedAtMillis: Long = 0L,
 ) {
     fun isFresh(nowMillis: Long = System.currentTimeMillis()): Boolean =
-        updatedAtMillis > 0L && nowMillis - updatedAtMillis <= 15_000L
+        com.rakdatak.core.training.WorkoutSync.fresh(updatedAtMillis, nowMillis)
 }
 
 /**
@@ -66,7 +69,7 @@ class WearLiveMetricsRepository(context: Context) : DataClient.OnDataChangedList
     }
 
     private fun updateFrom(item: DataItem) {
-        val map = DataMapItem.fromDataItem(item).dataMap
+        val map = runCatching { DataMapItem.fromDataItem(item).dataMap }.getOrNull() ?: return
         val heartRate = map.getDouble(
             WearSyncProtocol.KEY_HEART_RATE_BPM,
             WearSyncProtocol.UNKNOWN_DOUBLE,
@@ -76,7 +79,20 @@ class WearLiveMetricsRepository(context: Context) : DataClient.OnDataChangedList
             WearSyncProtocol.UNKNOWN_DOUBLE,
         ).takeIf { it >= 0.0 }
 
+        val timestamp = map.getLong(WearSyncProtocol.KEY_UPDATED_AT_MILLIS)
+        if (timestamp < _state.value.updatedAtMillis || timestamp > System.currentTimeMillis() + 2_000) return
+        val id = map.getString(WearSyncProtocol.KEY_SESSION_ID) ?: return
+        if (!id.matches(Regex("[a-zA-Z0-9-]{1,64}")) ||
+            map.getString(WearSyncProtocol.KEY_OWNER) !in setOf("PHONE", "WATCH") ||
+            map.getInt(WearSyncProtocol.KEY_PLAN_INDEX, -1) !in com.rakdatak.core.training.BaselinePlanFactory.create().indices ||
+            map.getString(WearSyncProtocol.KEY_STATUS) !in setOf("RUNNING", "PAUSED", "STOPPED", "COMPLETED") ||
+            map.getInt(WearSyncProtocol.KEY_TOTAL_ELAPSED_SECONDS) < 0 ||
+            map.getInt(WearSyncProtocol.KEY_PHASE_REMAINING_SECONDS) < 0 ||
+            map.getDouble(WearSyncProtocol.KEY_COMPLETION_RATIO) !in 0.0..1.0) return
         _state.value = WearLiveMetrics(
+            sessionId = map.getString(WearSyncProtocol.KEY_SESSION_ID),
+            owner = map.getString(WearSyncProtocol.KEY_OWNER),
+            planIndex = map.getInt(WearSyncProtocol.KEY_PLAN_INDEX, -1),
             status = map.getString(WearSyncProtocol.KEY_STATUS),
             phase = map.getString(WearSyncProtocol.KEY_PHASE),
             phaseRemainingSeconds = map.getInt(WearSyncProtocol.KEY_PHASE_REMAINING_SECONDS),

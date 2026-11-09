@@ -7,6 +7,9 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 
 data class WearWorkoutState(
+    val sessionId: String? = null,
+    val owner: com.rakdatak.core.training.WorkoutOwner = com.rakdatak.core.training.WorkoutOwner.WATCH,
+    val planIndex: Int = 0,
     val snapshot: WorkoutSessionSnapshot? = null,
     val metrics: WearExerciseMetrics = WearExerciseMetrics(),
     val gpsEnabled: Boolean = false,
@@ -21,8 +24,9 @@ object WearWorkoutRepository {
     private val _state = MutableStateFlow(WearWorkoutState())
     val state: StateFlow<WearWorkoutState> = _state.asStateFlow()
 
-    internal fun start(snapshot: WorkoutSessionSnapshot, gpsEnabled: Boolean) {
+    internal fun start(snapshot: WorkoutSessionSnapshot, gpsEnabled: Boolean, sessionId: String, owner: com.rakdatak.core.training.WorkoutOwner, planIndex: Int) {
         _state.value = WearWorkoutState(
+            sessionId = sessionId, owner = owner, planIndex = planIndex,
             snapshot = snapshot,
             gpsEnabled = gpsEnabled,
         )

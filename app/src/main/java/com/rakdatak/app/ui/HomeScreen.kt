@@ -66,8 +66,12 @@ fun RakdatakHomeScreen(
     onStartWorkout: () -> Unit,
     onResumeWorkout: () -> Unit,
     onOpenHistory: () -> Unit,
+    onOpenPlan: () -> Unit,
     onOpenSettings: () -> Unit,
     onOpenSchedule: () -> Unit,
+    syncedWatch: com.rakdatak.app.wear.WearLiveMetrics? = null,
+    watchFresh: Boolean = false,
+    onWatchControl: (String) -> Unit = {},
 ) {
     val watch = rememberWearLiveMetrics()
     val watchConnected = watch.isFresh()
@@ -113,12 +117,47 @@ fun RakdatakHomeScreen(
 
             GoalCard(planProgress = planProgress)
 
+            OutlinedButton(
+                onClick = onOpenPlan,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(56.dp),
+                shape = RoundedCornerShape(18.dp),
+            ) {
+                Text(
+                    "خطتك الكاملة • أنت في الأسبوع " + currentPlan.week +
+                        "، الجلسة " + currentPlan.session,
+                    color = Black,
+                )
+            }
+
             WatchStatusCard(
                 connected = watchConnected,
                 heartRateBpm = watch.heartRateBpm,
             )
 
-            if (safetyReviewNeeded) {
+            if (syncedWatch != null) {
+                Card(modifier = Modifier.fillMaxWidth()) {
+                    Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text(if (watchFresh) "تمرين الساعة نشط" else "انقطع الاتصال — آخر حالة من الساعة")
+                        val remotePlan = com.rakdatak.core.training.BaselinePlanFactory.create()
+                            .getOrNull(syncedWatch.planIndex)
+                        val remoteSnapshot = remotePlan?.let {
+                            com.rakdatak.core.training.WorkoutSessionEngine(it).restore(
+                                syncedWatch.totalElapsedSeconds, syncedWatch.status == "PAUSED")
+                        }
+                        Text(if (syncedWatch.status == "PAUSED") "متوقف مؤقتًا" else "التمرين مستمر")
+                        Text("الوقت: ${formatTime(syncedWatch.totalElapsedSeconds)}")
+                        Text("المرحلة: ${syncPhaseLabel(syncedWatch.phase)} • ${formatTime(syncedWatch.phaseRemainingSeconds)}")
+                        Text("التالي: ${syncPhaseLabel(remoteSnapshot?.nextPhase?.type?.name)}")
+                        Text("النبض: ${syncedWatch.heartRateBpm?.toInt() ?: "—"} • المسافة: ${syncedWatch.distanceMeters?.toInt() ?: "—"} م")
+                        Button(enabled = watchFresh, onClick = {
+                            onWatchControl(if (syncedWatch.status == "PAUSED") "RESUME" else "PAUSE")
+                        }) { Text(if (syncedWatch.status == "PAUSED") "متابعة" else "إيقاف مؤقت") }
+                        OutlinedButton(enabled = watchFresh, onClick = { onWatchControl("STOP") }) { Text("إنهاء التمرين") }
+                    }
+                }
+            } else if (safetyReviewNeeded) {
                 SafetyReviewCard()
             } else if (activeWorkout != null) {
                 ActiveWorkoutCard(
@@ -533,3 +572,11 @@ private fun formatCompactDuration(totalSeconds: Int): String {
 
 private fun formatDistance(distanceMeters: Double): String =
     "%.2f كم".format(distanceMeters.coerceAtLeast(0.0) / 1_000.0)
+
+private fun syncPhaseLabel(phase: String?): String = when (phase) {
+    "WARM_UP" -> "إحماء"
+    "WALK" -> "مشي"
+    "RUN" -> "ركض"
+    "COOL_DOWN" -> "تهدئة"
+    else -> "—"
+}

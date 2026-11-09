@@ -1,6 +1,7 @@
 package com.rakdatak.app.progress
 
 import android.content.Context
+import androidx.datastore.preferences.core.stringSetPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.longPreferencesKey
@@ -46,12 +47,17 @@ class TrainingProgressRepository(private val context: Context) {
         elapsedSeconds: Int,
         completionRatio: Double,
         distanceMeters: Double? = null,
+        sessionId: String? = null,
     ) {
         require(elapsedSeconds >= 0)
         require(completionRatio in 0.0..1.0)
 
         val safeDistanceMeters = (distanceMeters ?: 0.0).coerceAtLeast(0.0).roundToLong()
         context.trainingProgressDataStore.edit { preferences ->
+            val recordedKey = stringSetPreferencesKey("recorded_session_ids")
+            val recorded = preferences[recordedKey].orEmpty()
+            if (sessionId != null && sessionId in recorded) return@edit
+            if (sessionId != null) preferences[recordedKey] = recorded + sessionId
             val previousSaved = preferences[SAVED_WORKOUTS] ?: 0
             val previousCompleted = preferences[COMPLETED_WORKOUTS] ?: 0
             val previousSeconds = preferences[TOTAL_SECONDS] ?: 0L

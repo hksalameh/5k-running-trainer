@@ -1,39 +1,22 @@
 package com.rakdatak.wear.health
 
-import android.Manifest
-import android.content.pm.PackageManager
+import android.content.Intent
+import androidx.core.content.ContextCompat
 import com.google.android.gms.wearable.MessageEvent
 import com.google.android.gms.wearable.WearableListenerService
-import com.rakdatak.core.training.WearSyncProtocol
+import com.rakdatak.core.training.*
 
-/** Receives best-effort phone workout controls and mirrors them on the watch. */
 class WearControlListenerService : WearableListenerService() {
     override fun onMessageReceived(messageEvent: MessageEvent) {
         if (messageEvent.path != WearSyncProtocol.CONTROL_MESSAGE_PATH) return
-
-        val command = messageEvent.data.decodeToString()
-        val parts = command.split('|')
-
-        when (parts.firstOrNull()) {
-            WearSyncProtocol.COMMAND_START -> {
-                val planIndex = parts.getOrNull(1)?.toIntOrNull() ?: 0
-                val elapsedSeconds = parts.getOrNull(2)?.toIntOrNull() ?: 0
-                val locationGranted = checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) ==
-                    PackageManager.PERMISSION_GRANTED
-                val requestedGps = parts.getOrNull(3)?.toBooleanStrictOrNull() ?: locationGranted
-                val useGps = requestedGps && locationGranted
-
-                WearWorkoutService.start(
-                    context = this,
-                    gpsEnabled = useGps,
-                    planIndex = planIndex,
-                    elapsedSeconds = elapsedSeconds,
-                )
-            }
-
-            WearSyncProtocol.COMMAND_PAUSE -> WearWorkoutService.pause(this)
-            WearSyncProtocol.COMMAND_RESUME -> WearWorkoutService.resume(this)
-            WearSyncProtocol.COMMAND_STOP -> WearWorkoutService.stop(this)
+        val raw = messageEvent.data.decodeToString()
+        val command = WorkoutSync.parse(raw) ?: return
+        if (!WorkoutSync.fresh(command.sentAt, System.currentTimeMillis())) return
+        val intent = Intent(this, WearWorkoutService::class.java).putExtra("remote_command", raw)
+        runCatching {
+            if (command.action == "START") ContextCompat.startForegroundService(this, intent)
+            else if (WearWorkoutRepository.state.value.snapshot?.status in
+                setOf(WorkoutSessionStatus.RUNNING, WorkoutSessionStatus.PAUSED)) startService(intent)
         }
     }
 }

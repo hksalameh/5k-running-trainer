@@ -17,8 +17,10 @@ import android.speech.tts.UtteranceProgressListener
 import android.speech.tts.Voice
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.platform.LocalContext
 import com.rakdatak.app.settings.WorkoutVoice
 import com.rakdatak.core.training.WorkoutSessionSnapshot
@@ -85,6 +87,9 @@ class PhoneWorkoutCoach(
     private var playbackToken = 0
     private var ready = false
     private var pendingFirstCue: String? = null
+    private var pendingFirstCueCompletion: (() -> Unit)? = null
+    private var activeUtteranceId: String? = null
+    private var activeUtteranceCompletion: (() -> Unit)? = null
     private var lastPhaseIndex = -1
     private var oneMinuteCuePhase = -1
     private var tenSecondCuePhase = -1
@@ -98,28 +103,43 @@ class PhoneWorkoutCoach(
             override fun onStart(utteranceId: String?) = Unit
 
             override fun onDone(utteranceId: String?) {
-                abandonAudioFocus()
+                finishSpokenUtterance(utteranceId)
             }
 
             @Deprecated("Deprecated in Java")
             override fun onError(utteranceId: String?) {
-                abandonAudioFocus()
+                finishSpokenUtterance(utteranceId)
             }
 
             override fun onError(utteranceId: String?, errorCode: Int) {
-                abandonAudioFocus()
+                finishSpokenUtterance(utteranceId)
             }
         })
         prepareNaturalVoicePack()
     }
 
     override fun onInit(status: Int) {
-        if (status != TextToSpeech.SUCCESS) return
-        ready = configureArabicVoice()
-        if (ready) {
-            pendingFirstCue?.let { pending ->
-                pendingFirstCue = null
-                speakWithTts(pending)
+        ready = status == TextToSpeech.SUCCESS && configureArabicVoice()
+        val pending = pendingFirstCue
+        val completion = pendingFirstCueCompletion
+        pendingFirstCue = null
+        pendingFirstCueCompletion = null
+        if (pending != null && ready) {
+            speakWithTts(pending, completion)
+        } else {
+            // Do not strand the interval counter when the TTS engine fails.
+            mainHandler.post { completion?.invoke() }
+        }
+    }
+
+    private fun finishSpokenUtterance(id: String?) {
+        mainHandler.post {
+            abandonAudioFocus()
+            if (!closed && id != null && id == activeUtteranceId) {
+                val complete = activeUtteranceCompletion
+                activeUtteranceId = null
+                activeUtteranceCompletion = null
+                complete?.invoke()
             }
         }
     }
@@ -128,6 +148,7 @@ class PhoneWorkoutCoach(
         snapshot: WorkoutSessionSnapshot,
         soundCuesEnabled: Boolean,
         vibrationEnabled: Boolean,
+        onPhaseInstructionCompleted: () -> Unit,
     ) {
         if (snapshot.status == WorkoutSessionStatus.STOPPED) {
             needsSessionReset = true
@@ -171,7 +192,10 @@ class PhoneWorkoutCoach(
                 speakCue(
                     clipKey = clipKeyForPhase(snapshot.currentPhase),
                     fallbackText = phaseStartPrompt(snapshot.currentPhase),
+                    onComplete = onPhaseInstructionCompleted,
                 )
+            } else {
+                onPhaseInstructionCompleted()
             }
         }
 
@@ -261,14 +285,16 @@ class PhoneWorkoutCoach(
     private fun speakCue(
         clipKey: String?,
         fallbackText: String,
+        onComplete: (() -> Unit)? = null,
     ) {
-        if (clipKey != null && playNaturalClip(clipKey, 0L)) return
-        speakWithTts(fallbackText)
+        if (clipKey != null && playNaturalClip(clipKey, 0L, onComplete)) return
+        speakWithTts(fallbackText, onComplete)
     }
 
     private fun playNaturalClip(
         key: String,
         delayMs: Long,
+        onComplete: (() -> Unit)? = null,
     ): Boolean {
         val clip = voicePack.clips[key] ?: return false
         val player = naturalPlayer ?: return false
@@ -300,12 +326,14 @@ class PhoneWorkoutCoach(
                                     if (player.isPlaying) player.pause()
                                 }
                                 abandonAudioFocus()
+                                onComplete?.invoke()
                             }
                         },
                         clip.durationMs + 80L,
                     )
                 } catch (_: Throwable) {
-                    // Future cues will fall back to Android TTS if local playback becomes unavailable.
+                    // A broken audio player must never leave the next interval frozen.
+                    onComplete?.invoke()
                 }
             },
             delayMs,
@@ -499,14 +527,22 @@ class PhoneWorkoutCoach(
         toneGenerator.startTone(tone, 150)
     }
 
-    private fun speakWithTts(text: String) {
+    private fun speakWithTts(
+        text: String,
+        onComplete: (() -> Unit)? = null,
+    ) {
         if (!ready) {
             pendingFirstCue = text
+            pendingFirstCueCompletion = onComplete
             return
         }
         audioManager.requestAudioFocus(focusRequest)
-        val utteranceId = "rakdatak-${utteranceCounter.incrementAndGet()}"
-        tts.speak(text, TextToSpeech.QUEUE_FLUSH, null, utteranceId)
+        val utteranceId = "rakdatak-" + utteranceCounter.incrementAndGet()
+        activeUtteranceId = utteranceId
+        activeUtteranceCompletion = onComplete
+        if (tts.speak(text, TextToSpeech.QUEUE_FLUSH, null, utteranceId) == TextToSpeech.ERROR) {
+            finishSpokenUtterance(utteranceId)
+        }
     }
 
     private fun resetSessionCues() {
@@ -554,6 +590,8 @@ class PhoneWorkoutCoach(
         toneGenerator.release()
         tts.stop()
         tts.shutdown()
+        pendingFirstCueCompletion = null
+        activeUtteranceCompletion = null
     }
 
     private companion object {
@@ -645,8 +683,10 @@ fun PhoneWorkoutCoachEffect(
     soundCuesEnabled: Boolean,
     workoutVoice: WorkoutVoice,
     vibrationEnabled: Boolean,
+    onPhaseInstructionCompleted: () -> Unit,
 ) {
     val context = LocalContext.current
+    val callback by rememberUpdatedState(onPhaseInstructionCompleted)
     val coach = remember(context, workoutVoice) { PhoneWorkoutCoach(context, workoutVoice) }
 
     DisposableEffect(coach) {
@@ -665,6 +705,7 @@ fun PhoneWorkoutCoachEffect(
             snapshot = snapshot,
             soundCuesEnabled = soundCuesEnabled,
             vibrationEnabled = vibrationEnabled,
+            onPhaseInstructionCompleted = { callback() },
         )
     }
 }
