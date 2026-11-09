@@ -2,6 +2,10 @@ package com.rakdatak.core.training
 
 /** Shared keys and commands exchanged between the phone and Wear OS app. */
 object WearSyncProtocol {
+    const val REVERSE_MESSAGE_PATH = "/rakdatak/watch-control"
+    const val KEY_SESSION_ID = "session_id"
+    const val KEY_OWNER = "owner"
+    const val KEY_PLAN_INDEX = "plan_index"
     const val LIVE_DATA_PATH = "/rakdatak/live-workout"
     const val CONTROL_MESSAGE_PATH = "/rakdatak/workout-control"
 

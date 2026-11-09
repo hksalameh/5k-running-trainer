@@ -1,5 +1,7 @@
 package com.rakdatak.wear.health
 
+import com.rakdatak.core.training.*
+import com.google.android.gms.wearable.Wearable
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
@@ -34,6 +36,11 @@ class WearWorkoutService : LifecycleService() {
     private val directHeartRate by lazy { WearHeartRateSensor(this) }
     private val livePublisher by lazy { WearLiveDataPublisher(this) }
 
+    private var sessionId = java.util.UUID.randomUUID().toString()
+    private var owner = WorkoutOwner.WATCH
+    private var sessionPlanIndex = 0
+    private var startPaused = false
+    private val syncPrefs by lazy { getSharedPreferences("workout_sync", Context.MODE_PRIVATE) }
     private var engine: WorkoutSessionEngine? = null
     private var tickerJob: Job? = null
     private var metricsJob: Job? = null
@@ -66,6 +73,39 @@ class WearWorkoutService : LifecycleService() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         super.onStartCommand(intent, flags, startId)
 
+        val remote = intent?.getStringExtra("remote_command")
+        if (remote != null) {
+            val c = WorkoutSync.parse(remote) ?: return START_NOT_STICKY
+            val active = engine?.snapshot()?.status in ACTIVE_STATUSES
+            if (!WorkoutSync.accepts(c, sessionId.takeIf { active }, owner.takeIf { active },
+                    WorkoutOwner.WATCH, System.currentTimeMillis(), syncPrefs.getLong("last_command", 0)) ||
+                c.planIndex !in plans.indices ||
+                (c.action == "START" && syncPrefs.getString("last_session", null) == c.sessionId)) {
+                if (!active) stopSelf()
+                return START_NOT_STICKY
+            }
+            syncPrefs.edit().putLong("last_command", c.sentAt).putString("last_session", c.sessionId).commit()
+            lifecycleScope.launch {
+                if (c.action == "START") {
+                    sessionId = c.sessionId
+                    owner = c.owner
+                    startPaused = c.paused
+                    gpsEnabled = c.gps && checkSelfPermission(android.Manifest.permission.ACCESS_FINE_LOCATION) ==
+                        android.content.pm.PackageManager.PERMISSION_GRANTED
+                    startWorkout(c.planIndex, c.elapsed)
+                } else {
+                    if (owner == WorkoutOwner.PHONE) {
+                        engine?.restore(c.elapsed, paused = c.action != "PAUSE")?.let { WearWorkoutRepository.updateSnapshot(it) }
+                    }
+                    when (c.action) {
+                        "PAUSE" -> pauseWorkout()
+                        "RESUME" -> resumeWorkout()
+                        "STOP" -> stopWorkout()
+                    }
+                }
+            }
+            return START_NOT_STICKY
+        }
         when (intent?.action) {
             ACTION_START -> {
                 gpsEnabled = intent.getBooleanExtra(EXTRA_GPS_ENABLED, false)
@@ -73,6 +113,9 @@ class WearWorkoutService : LifecycleService() {
                 val elapsedSeconds = intent.getIntExtra(EXTRA_ELAPSED_SECONDS, 0)
                 if (engine == null || engine?.snapshot()?.status !in ACTIVE_STATUSES) {
                     lifecycleScope.launch {
+                        sessionId = java.util.UUID.randomUUID().toString()
+                        owner = WorkoutOwner.WATCH
+                        startPaused = false
                         startWorkout(
                             planIndex = planIndex,
                             elapsedSeconds = elapsedSeconds,
@@ -81,10 +124,10 @@ class WearWorkoutService : LifecycleService() {
                 }
             }
 
-            ACTION_TOGGLE_PAUSE -> lifecycleScope.launch { togglePause() }
+            ACTION_TOGGLE_PAUSE -> lifecycleScope.launch { togglePause(); sendLocalControl() }
             ACTION_PAUSE -> lifecycleScope.launch { pauseWorkout() }
             ACTION_RESUME -> lifecycleScope.launch { resumeWorkout() }
-            ACTION_STOP -> lifecycleScope.launch { stopWorkout() }
+            ACTION_STOP -> lifecycleScope.launch { stopWorkout(); sendLocalControl() }
         }
 
         return START_NOT_STICKY
@@ -94,22 +137,23 @@ class WearWorkoutService : LifecycleService() {
         planIndex: Int,
         elapsedSeconds: Int,
     ) {
+        sessionPlanIndex = planIndex
         val safePlanIndex = planIndex.coerceIn(0, plans.lastIndex)
         val plan = plans[safePlanIndex]
         val newEngine = WorkoutSessionEngine(plan)
         engine = newEngine
 
-        val started = if (elapsedSeconds > 0) {
+        val started = if (elapsedSeconds > 0 || startPaused) {
             newEngine.restore(
                 elapsedSeconds = elapsedSeconds,
-                paused = false,
+                paused = startPaused,
             )
         } else {
             newEngine.start()
         }
 
         if (started.status == WorkoutSessionStatus.COMPLETED) {
-            WearWorkoutRepository.start(started, gpsEnabled)
+            WearWorkoutRepository.start(started, gpsEnabled, sessionId, owner, sessionPlanIndex)
             livePublisher.publish(started, combinedMetrics())
             stopSelf()
             return
@@ -117,7 +161,7 @@ class WearWorkoutService : LifecycleService() {
 
         startInForeground()
         lastPhaseIndex = started.phaseIndex
-        WearWorkoutRepository.start(started, gpsEnabled)
+        WearWorkoutRepository.start(started, gpsEnabled, sessionId, owner, sessionPlanIndex)
 
         // Start a direct heart-rate listener as a fallback. Health Services remains preferred when
         // it provides heart-rate data, but this keeps compatible watches useful if it cannot.
@@ -136,7 +180,10 @@ class WearWorkoutService : LifecycleService() {
                 delay(1_000)
                 val activeEngine = engine ?: break
                 val before = activeEngine.snapshot()
-                if (before.status != WorkoutSessionStatus.RUNNING) continue
+                if (before.status != WorkoutSessionStatus.RUNNING) {
+                    publishCombinedMetrics()
+                    continue
+                }
 
                 val after = activeEngine.tick()
                 WearWorkoutRepository.updateSnapshot(after)
@@ -157,6 +204,22 @@ class WearWorkoutService : LifecycleService() {
                     break
                 }
             }
+        }
+    }
+
+    private fun sendLocalControl() {
+        if (owner != WorkoutOwner.PHONE) return
+        val snapshot = engine?.snapshot() ?: return
+        val action = when (snapshot.status) {
+            WorkoutSessionStatus.RUNNING -> "RESUME"
+            WorkoutSessionStatus.PAUSED -> "PAUSE"
+            else -> "STOP"
+        }
+        val command = WorkoutCommand(action, sessionId, owner, WorkoutOwner.WATCH,
+            System.currentTimeMillis(), sessionPlanIndex, snapshot.totalElapsedSeconds)
+        Wearable.getNodeClient(this).connectedNodes.addOnSuccessListener { nodes ->
+            nodes.forEach { Wearable.getMessageClient(this).sendMessage(it.id,
+                WearSyncProtocol.REVERSE_MESSAGE_PATH, command.encode().encodeToByteArray()) }
         }
     }
 

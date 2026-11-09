@@ -51,11 +51,13 @@ class WorkoutHistoryRepository(context: Context) {
         distanceMeters: Double,
         completionRatio: Double,
         timestampMillis: Long = System.currentTimeMillis(),
+        sessionId: String? = null,
     ) {
+        if (sessionId != null && load().any { it.id == sessionId }) return
         val updated = buildList {
             add(
                 WorkoutHistoryEntry(
-                    id = UUID.randomUUID().toString(),
+                    id = sessionId ?: UUID.randomUUID().toString(),
                     timestampMillis = timestampMillis,
                     elapsedSeconds = elapsedSeconds.coerceAtLeast(0),
                     distanceMeters = distanceMeters.coerceAtLeast(0.0),

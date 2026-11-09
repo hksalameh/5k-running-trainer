@@ -11,7 +11,12 @@ class WearLiveDataPublisher(context: Context) {
     private val dataClient = Wearable.getDataClient(context.applicationContext)
 
     fun publish(snapshot: WorkoutSessionSnapshot?, metrics: WearExerciseMetrics) {
+        val state = WearWorkoutRepository.state.value
+        if (snapshot == null || state.sessionId == null) return
         val request = PutDataMapRequest.create(WearSyncProtocol.LIVE_DATA_PATH).apply {
+            dataMap.putString(WearSyncProtocol.KEY_SESSION_ID, state.sessionId)
+            dataMap.putString(WearSyncProtocol.KEY_OWNER, state.owner.name)
+            dataMap.putInt(WearSyncProtocol.KEY_PLAN_INDEX, state.planIndex)
             dataMap.putString(WearSyncProtocol.KEY_STATUS, snapshot?.status?.name ?: "IDLE")
             dataMap.putString(WearSyncProtocol.KEY_PHASE, snapshot?.currentPhase?.type?.name ?: "")
             dataMap.putInt(

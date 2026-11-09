@@ -42,6 +42,9 @@ import com.rakdatak.app.ui.PreWorkoutCountdownScreen
 import com.rakdatak.app.ui.RakdatakHomeScreen
 import com.rakdatak.app.ui.TrainingPlanOverviewScreen
 import com.rakdatak.app.ui.WorkoutScreen
+import com.rakdatak.app.wear.*
+import com.rakdatak.core.training.WorkoutOwner
+import com.rakdatak.core.training.WorkoutSync
 import com.rakdatak.app.wear.PhoneWearController
 import com.rakdatak.app.workout.ActiveWorkoutRepository
 import com.rakdatak.core.training.BaselinePlanFactory
@@ -161,6 +164,7 @@ private fun RakdatakApp(
 ) {
     val plans = remember { BaselinePlanFactory.create() }
     val scheduleEngine = remember { TrainingScheduleEngine() }
+    // The saved training progress remains the source of truth, including sessions from 0.4.9.
     val planIndex = progress.currentPlanIndex.coerceIn(0, plans.lastIndex)
     val plan = plans[planIndex]
     val scope = rememberCoroutineScope()
@@ -203,6 +207,64 @@ private fun RakdatakApp(
     // Do not charge the next run/walk stage while its spoken instruction is playing.
     var awaitingInstruction by remember { mutableStateOf(false) }
     var instructionStartedAtMs by remember { mutableStateOf(0L) }
+    val syncContext = LocalContext.current
+    val watch = rememberWearLiveMetrics()
+    var syncNow by remember { mutableStateOf(System.currentTimeMillis()) }
+    // Never let a stale Wear DataItem block a new phone workout.
+    val watchActive = watch.isFresh(syncNow) && watch.owner == "WATCH" &&
+        !watch.sessionId.isNullOrBlank() && watch.planIndex in plans.indices &&
+        watch.status in setOf("RUNNING", "PAUSED") &&
+        snapshot.status !in setOf(WorkoutSessionStatus.RUNNING, WorkoutSessionStatus.PAUSED)
+    wearController.elapsed = snapshot.totalElapsedSeconds
+
+    LaunchedEffect(Unit) {
+        while (true) {
+            syncNow = System.currentTimeMillis()
+            for (command in PhoneCommandInbox.pending(syncContext)) {
+                val valid = WorkoutSync.accepts(command, wearController.sessionId, WorkoutOwner.PHONE,
+                    WorkoutOwner.PHONE, syncNow)
+                if (valid && snapshot.status in setOf(WorkoutSessionStatus.RUNNING, WorkoutSessionStatus.PAUSED)) {
+                    when (command.action) {
+                        "PAUSE" -> snapshot = engine.pause()
+                        "RESUME" -> {
+                            // Narration is an explicit hold and can never be released remotely.
+                            if (!awaitingInstruction) {
+                                snapshot = engine.resume()
+                                screen = AppScreen.WORKOUT
+                            } else {
+                                wearController.pause()
+                            }
+                        }
+                        "STOP" -> {
+                            snapshot = engine.stop()
+                            historyRepository.recordWorkout(snapshot.totalElapsedSeconds, distanceMeters,
+                                snapshot.completionRatio, sessionId = wearController.sessionId)
+                            progressRepository.recordWorkout(snapshot.totalElapsedSeconds, snapshot.completionRatio,
+                                distanceMeters, sessionId = wearController.sessionId)
+                            sessionRecorded = true
+                            awaitingInstruction = false
+                            screen = AppScreen.SUMMARY
+                        }
+                    }
+                    activeWorkoutRepository.save(snapshot, distanceMeters)
+                }
+                PhoneCommandInbox.acknowledge(syncContext, command)
+            }
+            delay(500)
+        }
+    }
+
+    // A watch-owned workout has exactly one clock. Only its final snapshot is recorded here.
+    LaunchedEffect(watch) {
+        if (watch.owner == "WATCH" && !watch.sessionId.isNullOrBlank() &&
+            watch.planIndex in plans.indices && watch.status in setOf("STOPPED", "COMPLETED")) {
+            // A persisted final DataItem remains valid after disconnect; history uses session ID dedup.
+            historyRepository.recordWorkout(watch.totalElapsedSeconds, watch.distanceMeters ?: 0.0,
+                watch.completionRatio, sessionId = watch.sessionId)
+            progressRepository.recordWorkout(watch.totalElapsedSeconds, watch.completionRatio,
+                watch.distanceMeters, sessionId = watch.sessionId)
+        }
+    }
 
     PhoneWorkoutCoachEffect(
         snapshot = snapshot,
@@ -264,6 +326,7 @@ private fun RakdatakApp(
                 val advance = minOf(elapsedWholeSeconds, snapshot.phaseRemainingSeconds.coerceAtLeast(1))
                 lastTickRealtime += elapsedWholeSeconds * 1_000L
                 snapshot = engine.tick(advance)
+                wearController.elapsed = snapshot.totalElapsedSeconds
                 activeWorkoutRepository.save(snapshot, distanceMeters)
 
                 if (snapshot.status == WorkoutSessionStatus.RUNNING &&
@@ -279,11 +342,13 @@ private fun RakdatakApp(
                     if (!sessionRecorded) {
                         sessionRecorded = true
                         progressRepository.recordWorkout(
+                            sessionId = wearController.sessionId,
                             elapsedSeconds = snapshot.totalElapsedSeconds,
                             completionRatio = snapshot.completionRatio,
                             distanceMeters = distanceMeters,
                         )
                         historyRepository.recordWorkout(
+                            sessionId = wearController.sessionId,
                             elapsedSeconds = snapshot.totalElapsedSeconds,
                             completionRatio = snapshot.completionRatio,
                             distanceMeters = distanceMeters,
@@ -308,8 +373,15 @@ private fun RakdatakApp(
             scheduleConfigured = trainingSchedule.isConfigured,
             activeWorkout = snapshot.takeIf { hasActiveWorkout },
             activeDistanceMeters = distanceMeters,
+            syncedWatch = watch.takeIf { watchActive },
+            watchFresh = watch.isFresh(syncNow),
+            onWatchControl = { action ->
+                if (watchActive && watch.isFresh()) wearController.controlWatch(action,
+                    watch.sessionId!!, watch.planIndex, watch.totalElapsedSeconds)
+            },
             onStartWorkout = {
-                if (!profile.safetyReviewNeeded) {
+                if (!profile.safetyReviewNeeded && !watchActive) {
+                    wearController.newSession(planIndex)
                     engine = WorkoutSessionEngine(plan)
                     snapshot = engine.snapshot()
                     distanceMeters = 0.0
@@ -319,6 +391,7 @@ private fun RakdatakApp(
                 }
             },
             onResumeWorkout = {
+                if (watchActive) return@RakdatakHomeScreen
                 snapshot = if (snapshot.status == WorkoutSessionStatus.PAUSED) {
                     engine.resume()
                 } else {
@@ -329,8 +402,9 @@ private fun RakdatakApp(
                     planIndex = planIndex,
                     elapsedSeconds = snapshot.totalElapsedSeconds,
                     gpsEnabled = profile.trainingEnvironment != TrainingEnvironment.TREADMILL,
+                    paused = awaitingInstruction,
                 )
-                wearController.resume()
+                if (!awaitingInstruction) wearController.resume()
                 screen = AppScreen.WORKOUT
             },
             onOpenHistory = { screen = AppScreen.HISTORY },
@@ -344,6 +418,7 @@ private fun RakdatakApp(
             soundCuesEnabled = settings.soundCuesEnabled,
             vibrationEnabled = settings.vibrationEnabled,
             onFinished = {
+                if (watchActive) { screen = AppScreen.HOME; return@PreWorkoutCountdownScreen }
                 snapshot = engine.start()
                 awaitingInstruction = settings.soundCuesEnabled
                 instructionStartedAtMs = SystemClock.elapsedRealtime()
@@ -352,6 +427,7 @@ private fun RakdatakApp(
                     planIndex = planIndex,
                     elapsedSeconds = 0,
                     gpsEnabled = profile.trainingEnvironment != TrainingEnvironment.TREADMILL,
+                    paused = awaitingInstruction,
                 )
                 if (awaitingInstruction) wearController.pause()
                 screen = AppScreen.WORKOUT
@@ -373,7 +449,7 @@ private fun RakdatakApp(
             },
             onPauseResume = {
                 snapshot = if (snapshot.status == WorkoutSessionStatus.PAUSED) {
-                    wearController.resume()
+                    if (!awaitingInstruction) wearController.resume()
                     engine.resume()
                 } else {
                     wearController.pause()
@@ -396,12 +472,14 @@ private fun RakdatakApp(
                 if (!sessionRecorded) {
                     sessionRecorded = true
                     historyRepository.recordWorkout(
+                            sessionId = wearController.sessionId,
                         elapsedSeconds = stopped.totalElapsedSeconds,
                         completionRatio = stopped.completionRatio,
                         distanceMeters = distanceMeters,
                     )
                     scope.launch {
                         progressRepository.recordWorkout(
+                            sessionId = wearController.sessionId,
                             elapsedSeconds = stopped.totalElapsedSeconds,
                             completionRatio = stopped.completionRatio,
                             distanceMeters = distanceMeters,
