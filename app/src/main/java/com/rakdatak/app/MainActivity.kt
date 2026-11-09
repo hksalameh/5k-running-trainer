@@ -46,6 +46,7 @@ import com.rakdatak.app.wear.PhoneWearController
 import com.rakdatak.app.workout.ActiveWorkoutRepository
 import com.rakdatak.core.training.BaselinePlanFactory
 import com.rakdatak.core.training.TrainingScheduleEngine
+import com.rakdatak.core.training.WorkoutTimelineMigration
 import com.rakdatak.core.training.WorkoutSessionEngine
 import com.rakdatak.core.training.WorkoutSessionStatus
 import java.time.LocalDateTime
@@ -94,7 +95,8 @@ private fun RakdatakRoot() {
     val profile by produceState<RunnerProfile?>(initialValue = null, profileRepository) {
         profileRepository.profile.collectLatest { value = it }
     }
-    val progress by produceState(initialValue = TrainingProgress(), progressRepository) {
+    // Wait for the persisted plan index before restoring/migrating an active session.
+    val progress by produceState<TrainingProgress?>(initialValue = null, progressRepository) {
         progressRepository.progress.collectLatest { value = it }
     }
     val settings by produceState(initialValue = AppSettings(), settingsRepository) {
@@ -108,7 +110,7 @@ private fun RakdatakRoot() {
     }
 
     when {
-        profile == null -> Surface(
+        profile == null || progress == null -> Surface(
             modifier = Modifier.fillMaxSize(),
             color = Color.White,
         ) {}
@@ -128,7 +130,7 @@ private fun RakdatakRoot() {
         else -> RakdatakApp(
             profile = profile!!,
             profileRepository = profileRepository,
-            progress = progress,
+            progress = progress!!,
             progressRepository = progressRepository,
             settings = settings,
             settingsRepository = settingsRepository,
@@ -167,10 +169,26 @@ private fun RakdatakApp(
     val initialEngine = remember {
         WorkoutSessionEngine(plan).also { restoredEngine ->
             restoredWorkout?.let { saved ->
-                restoredEngine.restore(
-                    elapsedSeconds = saved.elapsedSeconds,
-                    paused = true,
-                )
+                val elapsed = if (
+                    saved.timelineVersion < ActiveWorkoutRepository.CURRENT_TIMELINE_VERSION
+                ) {
+                    val legacyPlan = BaselinePlanFactory.create(
+                        warmUpSeconds = 180,
+                        coolDownSeconds = 180,
+                    )[planIndex]
+                    WorkoutTimelineMigration.migrateElapsed(
+                        oldPlan = legacyPlan,
+                        newPlan = plan,
+                        oldElapsedSeconds = saved.elapsedSeconds,
+                    )
+                } else {
+                    saved.elapsedSeconds
+                }
+                restoredEngine.restore(elapsedSeconds = elapsed, paused = true)
+                // One-time migration, retaining distance and the entire workout history.
+                if (saved.timelineVersion < ActiveWorkoutRepository.CURRENT_TIMELINE_VERSION) {
+                    activeWorkoutRepository.save(restoredEngine.snapshot(), saved.distanceMeters)
+                }
             }
         }
     }
