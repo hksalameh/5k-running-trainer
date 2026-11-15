@@ -188,8 +188,8 @@ private fun WelcomeScreen(onStart: () -> Unit) {
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(horizontal = 22.dp, vertical = 26.dp),
-            verticalArrangement = Arrangement.SpaceBetween,
+                .padding(horizontal = 22.dp, vertical = 18.dp),
+            verticalArrangement = Arrangement.spacedBy(22.dp),
         ) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -215,7 +215,7 @@ private fun WelcomeScreen(onStart: () -> Unit) {
                 }
             }
 
-            Column(verticalArrangement = Arrangement.spacedBy(18.dp)) {
+            Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
                 RakdatakHeroArtwork()
 
                 Text(
@@ -226,7 +226,7 @@ private fun WelcomeScreen(onStart: () -> Unit) {
                     fontWeight = FontWeight.Black,
                 )
                 Text(
-                    text = "هدفان مستقلان حسب قدرتك: 30 دقيقة ركض متواصل، أو 5 كم مشيًا أو ركضًا، على التردمل أو خارج البيت.",
+                    text = "اختر هدفك: 30 دقيقة ركض متواصل، أو 5 كم مشيًا أو ركضًا، على التردمل أو خارج البيت.",
                     color = Color.White.copy(alpha = 0.72f),
                     style = MaterialTheme.typography.bodyLarge,
                     lineHeight = 25.sp,
@@ -238,10 +238,11 @@ private fun WelcomeScreen(onStart: () -> Unit) {
                 ) {
                     FeaturePill(modifier = Modifier.weight(1f), big = "9", small = "أسابيع")
                     FeaturePill(modifier = Modifier.weight(1f), big = "3", small = "أيام بالأسبوع")
-                    FeaturePill(modifier = Modifier.weight(1f), big = "5K", small = "أو ركض 30 د")
+                    FeaturePill(modifier = Modifier.weight(1f), big = "27", small = "جلسة")
                 }
             }
 
+            Spacer(modifier = Modifier.weight(1f, fill = false))
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Button(
                     onClick = onStart,
@@ -249,15 +250,23 @@ private fun WelcomeScreen(onStart: () -> Unit) {
                         .fillMaxWidth()
                         .height(60.dp),
                     shape = RoundedCornerShape(20.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = Orange),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = Orange,
+                        contentColor = Color.Black,
+                    ),
                 ) {
-                    Text("ابدأ رحلتك", fontWeight = FontWeight.Bold, fontSize = 17.sp)
+                    Text(
+                        "ابدأ رحلتك",
+                        color = Color.Black,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 17.sp,
+                    )
                 }
                 Text(
                     text = "الأسئلة السريعة تظهر مرة واحدة فقط",
                     modifier = Modifier.fillMaxWidth(),
                     textAlign = TextAlign.Center,
-                    color = Color.White.copy(alpha = 0.45f),
+                    color = Color.White.copy(alpha = 0.72f),
                     style = MaterialTheme.typography.bodySmall,
                 )
             }
@@ -270,7 +279,7 @@ private fun RakdatakHeroArtwork() {
     Box(
         modifier = Modifier
             .fillMaxWidth()
-            .height(230.dp)
+            .height(170.dp)
             .clip(RoundedCornerShape(30.dp))
             .background(
                 Brush.linearGradient(
@@ -294,11 +303,11 @@ private fun RakdatakHeroArtwork() {
             )
 
             val route = Path().apply {
-                moveTo(-w * 0.05f, h * 0.79f)
+                moveTo(w * 1.05f, h * 0.79f)
                 cubicTo(
-                    w * 0.23f, h * 0.35f,
+                    w * 0.77f, h * 0.35f,
                     w * 0.50f, h * 0.98f,
-                    w * 1.08f, h * 0.33f,
+                    -w * 0.08f, h * 0.33f,
                 )
             }
             drawPath(
@@ -315,12 +324,12 @@ private fun RakdatakHeroArtwork() {
             drawCircle(
                 color = Color.White,
                 radius = 8.dp.toPx(),
-                center = Offset(w * 0.12f, h * 0.59f),
+                center = Offset(w * 0.88f, h * 0.59f),
             )
             drawCircle(
                 color = Orange,
                 radius = 11.dp.toPx(),
-                center = Offset(w * 0.88f, h * 0.48f),
+                center = Offset(w * 0.12f, h * 0.48f),
             )
         }
 
@@ -330,14 +339,14 @@ private fun RakdatakHeroArtwork() {
                 .padding(20.dp),
         ) {
             Text(
-                text = "YOUR RUN",
-                color = Color.White.copy(alpha = 0.45f),
+                text = "مسارك",
+                color = Color.White.copy(alpha = 0.70f),
                 fontSize = 11.sp,
                 fontWeight = FontWeight.Bold,
                 letterSpacing = 2.sp,
             )
             Text(
-                text = "5 KM",
+                text = "5 كم",
                 color = Color.White,
                 fontSize = 32.sp,
                 fontWeight = FontWeight.Black,
@@ -399,7 +408,7 @@ private fun CompactHeader() {
                     .background(Orange),
                 contentAlignment = Alignment.Center,
             ) {
-                Text("5K", color = Color.White, fontWeight = FontWeight.Black)
+                Text("5 كم", color = Color.White, fontWeight = FontWeight.Black)
             }
         }
     }
