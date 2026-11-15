@@ -51,10 +51,20 @@ jobs:
           script: |
             adb install -r app/build/outputs/apk/debug/app-debug.apk
             adb logcat -c
-            adb shell am start -W -n com.rakdatak.app/.MainActivity
+            adb shell am start -W -n com.rakdatak.app.preview/com.rakdatak.app.MainActivity
             sleep 4
-            adb shell pidof com.rakdatak.app
-            adb logcat -d -t 300 | grep -E "FATAL EXCEPTION|Process: com.rakdatak.app" && exit 1 || true
+            adb shell screencap -p /sdcard/rakdatak-ui.png
+            adb pull /sdcard/rakdatak-ui.png rakdatak-ui.png
+            adb shell pidof com.rakdatak.app.preview
+            adb logcat -d -t 300 | grep -E "FATAL EXCEPTION|Process: com.rakdatak.app.preview" && exit 1 || true
+
+      - name: Upload phone UI screenshot for design review
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: rakdatak-phone-ui
+          path: rakdatak-ui.png
+          if-no-files-found: warn
 
       - name: Upload phone APK
         uses: actions/upload-artifact@v4

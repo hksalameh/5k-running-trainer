@@ -69,7 +69,12 @@ fun WorkoutScreen(
     val watchDistance = watch.distanceMeters?.takeIf { watchFresh } ?: 0.0
 
     val metrics = rememberPhoneWorkoutMetrics(
-        active = gpsTrackingEnabled && snapshot.status == WorkoutSessionStatus.RUNNING,
+        // Keep the GPS listener alive while a spoken phase cue is playing.
+        // Otherwise every RUN/WALK transition discards the previous fix and shortens distance.
+        active = gpsTrackingEnabled && (
+            snapshot.status == WorkoutSessionStatus.RUNNING ||
+                snapshot.status == WorkoutSessionStatus.ANNOUNCING
+        ),
         initialDistanceMeters = initialDistanceMeters,
         onDistanceChanged = { phoneDistance ->
             onDistanceChanged(maxOf(phoneDistance, watchDistance))

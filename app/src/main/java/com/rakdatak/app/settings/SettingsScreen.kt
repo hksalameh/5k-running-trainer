@@ -39,6 +39,9 @@ fun SettingsScreen(
     settings: AppSettings,
     profileSummary: String,
     trainingScheduleSummary: String,
+    currentWeek: Int,
+    previewWeekSelectionEnabled: Boolean,
+    onPreviewWeekChanged: (Int) -> Unit,
     onBack: () -> Unit,
     onOpenProfileSettings: () -> Unit,
     onOpenTrainingSchedule: () -> Unit,
@@ -163,6 +166,46 @@ fun SettingsScreen(
                 subtitle = trainingScheduleSummary,
                 onClick = onOpenTrainingSchedule,
             )
+
+            if (previewWeekSelectionEnabled) {
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(20.dp),
+                    colors = CardDefaults.cardColors(containerColor = Light),
+                ) {
+                    Column(
+                        modifier = Modifier.fillMaxWidth().padding(18.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        Text(
+                            "اختيار أسبوع للتجربة",
+                            color = Black,
+                            style = MaterialTheme.typography.titleMedium,
+                        )
+                        Text(
+                            "هذا الاختيار يخص النسخة التجريبية فقط، ولا يغيّر تقدمك في التطبيق الأصلي.",
+                            color = Gray,
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                        repeat(3) { row ->
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            ) {
+                                repeat(3) { column ->
+                                    val week = row * 3 + column + 1
+                                    FilterChip(
+                                        selected = currentWeek == week,
+                                        onClick = { onPreviewWeekChanged(week) },
+                                        label = { Text("الأسبوع $week") },
+                                        modifier = Modifier.weight(1f),
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
 
             Spacer(modifier = Modifier.height(4.dp))
 

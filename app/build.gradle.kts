@@ -13,6 +13,16 @@ android {
         targetSdk = 37
         versionCode = 12
         versionName = "0.4.9"
+        manifestPlaceholders["appName"] = "ركضتك"
+    }
+
+    buildTypes {
+        getByName("debug") {
+            // Installs alongside the earlier debug APK, preserving its saved workouts and week.
+            applicationIdSuffix = ".preview"
+            versionNameSuffix = "-TEST"
+            manifestPlaceholders["appName"] = "ركضتك - تجربة"
+        }
     }
 
     buildFeatures {

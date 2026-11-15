@@ -10,6 +10,8 @@ data class PersistedWorkoutState(
     val paused: Boolean,
     val distanceMeters: Double,
     val lastUpdatedEpochMillis: Long,
+    val planId: String? = null,
+    val longestContinuousRunSeconds: Int = 0,
 )
 
 /**
@@ -34,6 +36,9 @@ class ActiveWorkoutRepository(context: Context) {
                 KEY_LAST_UPDATED_EPOCH_MILLIS,
                 System.currentTimeMillis(),
             ),
+            planId = prefs.getString(KEY_PLAN_ID, null),
+            longestContinuousRunSeconds = prefs.getInt(KEY_LONGEST_RUN_SECONDS, 0)
+                .coerceAtLeast(0),
         )
     }
 
@@ -49,6 +54,8 @@ class ActiveWorkoutRepository(context: Context) {
         prefs.edit()
             .putBoolean(KEY_ACTIVE, true)
             .putInt(KEY_ELAPSED_SECONDS, snapshot.totalElapsedSeconds.coerceAtLeast(0))
+            .putInt(KEY_LONGEST_RUN_SECONDS, snapshot.longestContinuousRunSeconds)
+            .putString(KEY_PLAN_ID, snapshot.planId)
             .putBoolean(KEY_PAUSED, snapshot.status == WorkoutSessionStatus.PAUSED)
             .putLong(
                 KEY_DISTANCE_CENTIMETERS,
@@ -66,11 +73,14 @@ class ActiveWorkoutRepository(context: Context) {
         private const val PREFS_NAME = "active_workout"
         private const val KEY_ACTIVE = "active"
         private const val KEY_ELAPSED_SECONDS = "elapsed_seconds"
+        private const val KEY_LONGEST_RUN_SECONDS = "longest_run_seconds"
+        private const val KEY_PLAN_ID = "plan_id"
         private const val KEY_PAUSED = "paused"
         private const val KEY_DISTANCE_CENTIMETERS = "distance_centimeters"
         private const val KEY_LAST_UPDATED_EPOCH_MILLIS = "last_updated_epoch_millis"
 
         private val ACTIVE_STATUSES = setOf(
+            WorkoutSessionStatus.ANNOUNCING,
             WorkoutSessionStatus.RUNNING,
             WorkoutSessionStatus.PAUSED,
         )

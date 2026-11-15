@@ -92,6 +92,20 @@ class WorkoutSessionEngineTest {
     }
 
     @Test
+    fun restoringElapsedTimeNeverInventsContinuousRunningStreak() {
+        val engine = WorkoutSessionEngine(plan)
+        val restored = engine.restore(elapsedSeconds = 4, paused = true)
+        assertEquals(0, restored.longestContinuousRunSeconds)
+
+        val saved = engine.restore(
+            elapsedSeconds = 4,
+            paused = true,
+            recordedLongestContinuousRunSeconds = 2,
+        )
+        assertEquals(2, saved.longestContinuousRunSeconds)
+    }
+
+    @Test
     fun runStreakEndsAtPauseButBestRunIsKept() {
         val engine = WorkoutSessionEngine(plan)
         engine.start()

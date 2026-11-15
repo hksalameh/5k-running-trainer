@@ -105,6 +105,15 @@ class TrainingProgressRepository(private val context: Context) {
         }
     }
 
+    /** For the separate preview APK only: jump directly to a week without touching production. */
+    suspend fun selectWeekForPreview(week: Int) {
+        require(context.packageName.endsWith(".preview"))
+        require(week in 1..9)
+        context.trainingProgressDataStore.edit { preferences ->
+            preferences[CURRENT_PLAN_INDEX] = (week - 1) * 3
+        }
+    }
+
     private companion object {
         val SAVED_WORKOUTS = intPreferencesKey("saved_workouts")
         val COMPLETED_WORKOUTS = intPreferencesKey("completed_workouts")

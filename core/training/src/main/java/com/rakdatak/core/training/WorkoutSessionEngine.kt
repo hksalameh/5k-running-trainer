@@ -22,6 +22,7 @@ data class WorkoutSessionSnapshot(
     val completionRatio: Double,
     val nextPhase: WorkoutPhase? = null,
     val longestContinuousRunSeconds: Int = 0,
+    val planId: String = "",
 )
 
 class WorkoutSessionEngine(
@@ -58,8 +59,10 @@ class WorkoutSessionEngine(
     fun restore(
         elapsedSeconds: Int,
         paused: Boolean = false,
+        recordedLongestContinuousRunSeconds: Int = 0,
     ): WorkoutSessionSnapshot {
         require(elapsedSeconds >= 0) { "elapsedSeconds must be >= 0" }
+        require(recordedLongestContinuousRunSeconds >= 0)
 
         status = WorkoutSessionStatus.ANNOUNCING
         phaseIndex = 0
@@ -92,17 +95,11 @@ class WorkoutSessionEngine(
                 }
             }
         }
-        val finishedPhases = plan.phases.take(phaseIndex)
-        longestContinuousRunSeconds = finishedPhases
-            .filter { it.type == WorkoutPhaseType.RUN }
-            .maxOfOrNull { it.durationSeconds } ?: 0
-        if (plan.phases[phaseIndex].type == WorkoutPhaseType.RUN) {
-            currentContinuousRunSeconds = phaseElapsedSeconds
-            longestContinuousRunSeconds = maxOf(
-                longestContinuousRunSeconds,
-                currentContinuousRunSeconds,
-            )
-        }
+        // We cannot infer whether old RUN phases had pauses from elapsedSeconds alone.
+        // Restore the actual recorded best instead of falsely treating them as continuous.
+        longestContinuousRunSeconds =
+            recordedLongestContinuousRunSeconds.coerceAtMost(boundedElapsed)
+        currentContinuousRunSeconds = 0
 
         pausedDuringAnnouncement = status == WorkoutSessionStatus.ANNOUNCING
         if (status != WorkoutSessionStatus.COMPLETED && paused) {
@@ -200,6 +197,7 @@ class WorkoutSessionEngine(
             },
             nextPhase = nextPhase,
             longestContinuousRunSeconds = longestContinuousRunSeconds,
+            planId = plan.id,
         )
     }
 
