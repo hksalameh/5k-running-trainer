@@ -166,6 +166,7 @@ private fun RakdatakWearApp() {
             },
         )
 
+        WorkoutSessionStatus.ANNOUNCING,
         WorkoutSessionStatus.RUNNING,
         WorkoutSessionStatus.PAUSED -> WorkoutScreen(
             snapshot = snapshot,
