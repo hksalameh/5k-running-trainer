@@ -226,7 +226,7 @@ private fun WelcomeScreen(onStart: () -> Unit) {
                     fontWeight = FontWeight.Black,
                 )
                 Text(
-                    text = "خطة تدريب تتكيّف مع تقدمك، وتوصلك تدريجيًا إلى 5 كم و30 دقيقة ركض متواصل.",
+                    text = "هدفان مستقلان حسب قدرتك: 30 دقيقة ركض متواصل، أو 5 كم مشيًا أو ركضًا، على التردمل أو خارج البيت.",
                     color = Color.White.copy(alpha = 0.72f),
                     style = MaterialTheme.typography.bodyLarge,
                     lineHeight = 25.sp,
@@ -236,9 +236,9 @@ private fun WelcomeScreen(onStart: () -> Unit) {
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
-                    FeaturePill(modifier = Modifier.weight(1f), big = "8", small = "أسابيع")
+                    FeaturePill(modifier = Modifier.weight(1f), big = "9", small = "أسابيع")
                     FeaturePill(modifier = Modifier.weight(1f), big = "3", small = "أيام بالأسبوع")
-                    FeaturePill(modifier = Modifier.weight(1f), big = "5K", small = "+ 30 دقيقة")
+                    FeaturePill(modifier = Modifier.weight(1f), big = "5K", small = "أو ركض 30 د")
                 }
             }
 
