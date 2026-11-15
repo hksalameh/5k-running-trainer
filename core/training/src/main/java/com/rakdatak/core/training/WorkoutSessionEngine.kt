@@ -2,9 +2,11 @@ package com.rakdatak.core.training
 
 import com.rakdatak.core.training.model.WorkoutPhase
 import com.rakdatak.core.training.model.WorkoutPlan
+import com.rakdatak.core.training.model.WorkoutPhaseType
 
 enum class WorkoutSessionStatus {
     READY,
+    ANNOUNCING,
     RUNNING,
     PAUSED,
     COMPLETED,
@@ -19,6 +21,7 @@ data class WorkoutSessionSnapshot(
     val totalElapsedSeconds: Int,
     val completionRatio: Double,
     val nextPhase: WorkoutPhase? = null,
+    val longestContinuousRunSeconds: Int = 0,
 )
 
 class WorkoutSessionEngine(
@@ -28,9 +31,20 @@ class WorkoutSessionEngine(
     private var phaseIndex = 0
     private var phaseElapsedSeconds = 0
     private var totalElapsedSeconds = 0
+    private var currentContinuousRunSeconds = 0
+    private var longestContinuousRunSeconds = 0
+    private var pausedDuringAnnouncement = false
 
     fun start(): WorkoutSessionSnapshot {
         if (status == WorkoutSessionStatus.READY) {
+            status = WorkoutSessionStatus.ANNOUNCING
+        }
+        return snapshot()
+    }
+
+    /** The phase clock starts only when its entire spoken instruction has finished. */
+    fun instructionFinished(): WorkoutSessionSnapshot {
+        if (status == WorkoutSessionStatus.ANNOUNCING) {
             status = WorkoutSessionStatus.RUNNING
         }
         return snapshot()
@@ -47,16 +61,50 @@ class WorkoutSessionEngine(
     ): WorkoutSessionSnapshot {
         require(elapsedSeconds >= 0) { "elapsedSeconds must be >= 0" }
 
-        status = WorkoutSessionStatus.RUNNING
+        status = WorkoutSessionStatus.ANNOUNCING
         phaseIndex = 0
         phaseElapsedSeconds = 0
         totalElapsedSeconds = 0
+        currentContinuousRunSeconds = 0
+        longestContinuousRunSeconds = 0
+        pausedDuringAnnouncement = false
 
         val boundedElapsed = elapsedSeconds.coerceAtMost(plan.totalDurationSeconds)
-        if (boundedElapsed > 0) {
-            tick(boundedElapsed)
+        totalElapsedSeconds = boundedElapsed
+        if (boundedElapsed == plan.totalDurationSeconds) {
+            phaseIndex = plan.phases.lastIndex
+            phaseElapsedSeconds = plan.phases.last().durationSeconds
+            status = WorkoutSessionStatus.COMPLETED
+        } else {
+            var secondsToLocate = boundedElapsed
+            plan.phases.forEachIndexed { index, phase ->
+                if (secondsToLocate >= 0 && secondsToLocate < phase.durationSeconds) {
+                    phaseIndex = index
+                    phaseElapsedSeconds = secondsToLocate
+                    status = if (secondsToLocate == 0) {
+                        WorkoutSessionStatus.ANNOUNCING
+                    } else {
+                        WorkoutSessionStatus.RUNNING
+                    }
+                    secondsToLocate = -1
+                } else if (secondsToLocate >= 0) {
+                    secondsToLocate -= phase.durationSeconds
+                }
+            }
+        }
+        val finishedPhases = plan.phases.take(phaseIndex)
+        longestContinuousRunSeconds = finishedPhases
+            .filter { it.type == WorkoutPhaseType.RUN }
+            .maxOfOrNull { it.durationSeconds } ?: 0
+        if (plan.phases[phaseIndex].type == WorkoutPhaseType.RUN) {
+            currentContinuousRunSeconds = phaseElapsedSeconds
+            longestContinuousRunSeconds = maxOf(
+                longestContinuousRunSeconds,
+                currentContinuousRunSeconds,
+            )
         }
 
+        pausedDuringAnnouncement = status == WorkoutSessionStatus.ANNOUNCING
         if (status != WorkoutSessionStatus.COMPLETED && paused) {
             status = WorkoutSessionStatus.PAUSED
         }
@@ -65,7 +113,9 @@ class WorkoutSessionEngine(
     }
 
     fun pause(): WorkoutSessionSnapshot {
-        if (status == WorkoutSessionStatus.RUNNING) {
+        if (status == WorkoutSessionStatus.RUNNING || status == WorkoutSessionStatus.ANNOUNCING) {
+            currentContinuousRunSeconds = 0
+            pausedDuringAnnouncement = status == WorkoutSessionStatus.ANNOUNCING
             status = WorkoutSessionStatus.PAUSED
         }
         return snapshot()
@@ -73,7 +123,11 @@ class WorkoutSessionEngine(
 
     fun resume(): WorkoutSessionSnapshot {
         if (status == WorkoutSessionStatus.PAUSED) {
-            status = WorkoutSessionStatus.RUNNING
+            status = if (pausedDuringAnnouncement) {
+                WorkoutSessionStatus.ANNOUNCING
+            } else {
+                WorkoutSessionStatus.RUNNING
+            }
         }
         return snapshot()
     }
@@ -102,6 +156,12 @@ class WorkoutSessionEngine(
             phaseElapsedSeconds += consumed
             totalElapsedSeconds += consumed
             remainingTick -= consumed
+            if (phase.type == WorkoutPhaseType.RUN) {
+                currentContinuousRunSeconds += consumed
+                longestContinuousRunSeconds = maxOf(
+                    longestContinuousRunSeconds, currentContinuousRunSeconds,
+                )
+            }
 
             if (phaseElapsedSeconds >= phase.durationSeconds) {
                 moveToNextPhaseOrComplete()
@@ -139,6 +199,7 @@ class WorkoutSessionEngine(
                 (totalElapsedSeconds.toDouble() / plan.totalDurationSeconds).coerceIn(0.0, 1.0)
             },
             nextPhase = nextPhase,
+            longestContinuousRunSeconds = longestContinuousRunSeconds,
         )
     }
 
@@ -151,5 +212,7 @@ class WorkoutSessionEngine(
 
         phaseIndex += 1
         phaseElapsedSeconds = 0
+        currentContinuousRunSeconds = 0
+        status = WorkoutSessionStatus.ANNOUNCING
     }
 }

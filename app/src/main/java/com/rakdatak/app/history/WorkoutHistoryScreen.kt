@@ -157,7 +157,9 @@ private fun HistoryCard(entry: WorkoutHistoryEntry) {
             }
 
             Text(
-                text = "${formatTime(entry.elapsedSeconds)} • ${formatDistance(entry.distanceMeters)} • ${(entry.completionRatio * 100).toInt()}%",
+                text = "${formatTime(entry.elapsedSeconds)} • " +
+                    (if (entry.estimatedDistance) "مسافة تقديرية " else "") +
+                    "${formatDistance(entry.distanceMeters)} • ${(entry.completionRatio * 100).toInt()}%",
                 color = Gray,
                 style = MaterialTheme.typography.bodyMedium,
             )

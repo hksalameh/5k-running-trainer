@@ -25,10 +25,23 @@ class WorkoutSessionEngineTest {
         val engine = WorkoutSessionEngine(plan)
 
         engine.start()
+        assertEquals(WorkoutSessionStatus.ANNOUNCING, engine.snapshot().status)
+        engine.tick(10)
+        assertEquals(0, engine.snapshot().totalElapsedSeconds)
+        engine.instructionFinished()
         val afterWarmup = engine.tick(2)
         assertEquals(WorkoutPhaseType.RUN, afterWarmup.currentPhase.type)
+        assertEquals(WorkoutSessionStatus.ANNOUNCING, afterWarmup.status)
+        assertEquals(2, afterWarmup.totalElapsedSeconds)
 
-        val completed = engine.tick(5)
+        engine.tick(20)
+        assertEquals(2, engine.snapshot().totalElapsedSeconds)
+        engine.instructionFinished()
+        val beforeCooldown = engine.tick(3)
+        assertEquals(WorkoutSessionStatus.ANNOUNCING, beforeCooldown.status)
+        assertEquals(3, beforeCooldown.longestContinuousRunSeconds)
+        engine.instructionFinished()
+        val completed = engine.tick(2)
         assertEquals(WorkoutSessionStatus.COMPLETED, completed.status)
         assertEquals(1.0, completed.completionRatio, 0.0001)
     }
@@ -38,6 +51,7 @@ class WorkoutSessionEngineTest {
         val engine = WorkoutSessionEngine(plan)
 
         engine.start()
+        engine.instructionFinished()
         engine.tick(1)
         engine.pause()
         engine.tick(10)
@@ -46,6 +60,50 @@ class WorkoutSessionEngineTest {
         engine.resume()
         engine.tick(1)
         assertEquals(2, engine.snapshot().totalElapsedSeconds)
+        assertEquals(WorkoutSessionStatus.ANNOUNCING, engine.snapshot().status)
+    }
+
+    @Test
+    fun pausingWhileAnnouncingDoesNotStartTheClock() {
+        val engine = WorkoutSessionEngine(plan)
+        engine.start()
+        engine.pause()
+        engine.instructionFinished()
+        engine.tick(10)
+        assertEquals(0, engine.snapshot().totalElapsedSeconds)
+        assertEquals(WorkoutSessionStatus.PAUSED, engine.snapshot().status)
+        engine.resume()
+        assertEquals(WorkoutSessionStatus.ANNOUNCING, engine.snapshot().status)
+        engine.instructionFinished()
+        engine.tick(1)
+        assertEquals(1, engine.snapshot().totalElapsedSeconds)
+    }
+
+    @Test
+    fun restoreAtExactPhaseBoundaryReannouncesWithoutLosingSeconds() {
+        val engine = WorkoutSessionEngine(plan)
+        val snapshot = engine.restore(elapsedSeconds = 2, paused = true)
+        assertEquals(2, snapshot.totalElapsedSeconds)
+        assertEquals(WorkoutPhaseType.RUN, snapshot.currentPhase.type)
+        engine.resume()
+        assertEquals(WorkoutSessionStatus.ANNOUNCING, engine.snapshot().status)
+        engine.instructionFinished()
+        assertEquals(3, engine.tick(1).totalElapsedSeconds)
+    }
+
+    @Test
+    fun runStreakEndsAtPauseButBestRunIsKept() {
+        val engine = WorkoutSessionEngine(plan)
+        engine.start()
+        engine.instructionFinished()
+        engine.tick(2)
+        engine.instructionFinished()
+        engine.tick(2)
+        assertEquals(2, engine.snapshot().longestContinuousRunSeconds)
+        engine.pause()
+        engine.resume()
+        engine.tick(1)
+        assertEquals(2, engine.snapshot().longestContinuousRunSeconds)
     }
 
     @Test

@@ -5,17 +5,18 @@ import com.rakdatak.core.training.model.WorkoutPhaseType
 import com.rakdatak.core.training.model.WorkoutPlan
 
 /**
- * Eight-week baseline for an absolute beginner.
+ * Nine-week baseline for an absolute beginner, following the NHS Couch to 5K
+ * time-based intervals and allowing adaptive repeats when needed.
  *
  * The progression follows the general Couch-to-5K run/walk pattern, while Rakdatak's adaptive
  * engine is allowed to repeat, step back, or accelerate sessions based on the user's response.
- * The last week reaches 30 minutes continuous running; if 5 km is not yet achieved, the app
- * continues with a distance-focused extension rather than declaring the program complete.
+ * The last week reaches 30 minutes continuous running. Walking/running 5 km is
+ * tracked separately from that running-endurance milestone.
  */
 object BaselinePlanFactory {
 
-    private const val DEFAULT_WARM_UP_SECONDS = 180
-    private const val DEFAULT_COOL_DOWN_SECONDS = 180
+    private const val DEFAULT_WARM_UP_SECONDS = 300
+    private const val DEFAULT_COOL_DOWN_SECONDS = 300
 
     fun create(
         warmUpSeconds: Int = DEFAULT_WARM_UP_SECONDS,
@@ -154,36 +155,30 @@ object BaselinePlanFactory {
             )
         }
 
-        add(
-            plan(
-                week = 8,
-                session = 1,
-                title = "28 دقيقة متواصلة",
-                warmUpSeconds = warmUpSeconds,
-                coolDownSeconds = coolDownSeconds,
-                main = listOf(run(1_680)),
+        repeat(3) { session ->
+            add(
+                plan(
+                    week = 8,
+                    session = session + 1,
+                    title = "28 دقيقة متواصلة",
+                    warmUpSeconds = warmUpSeconds,
+                    coolDownSeconds = coolDownSeconds,
+                    main = listOf(run(1_680)),
+                )
             )
-        )
-        add(
-            plan(
-                week = 8,
-                session = 2,
-                title = "30 دقيقة متواصلة",
-                warmUpSeconds = warmUpSeconds,
-                coolDownSeconds = coolDownSeconds,
-                main = listOf(run(1_800)),
+        }
+        repeat(3) { session ->
+            add(
+                plan(
+                    week = 9,
+                    session = session + 1,
+                    title = "30 دقيقة متواصلة",
+                    warmUpSeconds = warmUpSeconds,
+                    coolDownSeconds = coolDownSeconds,
+                    main = listOf(run(1_800)),
+                )
             )
-        )
-        add(
-            plan(
-                week = 8,
-                session = 3,
-                title = "تثبيت هدف 30 دقيقة",
-                warmUpSeconds = warmUpSeconds,
-                coolDownSeconds = coolDownSeconds,
-                main = listOf(run(1_800)),
-            )
-        )
+        }
     }
 
     private fun plan(

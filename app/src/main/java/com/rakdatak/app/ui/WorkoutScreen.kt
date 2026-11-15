@@ -9,11 +9,14 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -52,6 +55,9 @@ fun WorkoutScreen(
     plannedDurationSeconds: Int,
     initialDistanceMeters: Double,
     gpsTrackingEnabled: Boolean,
+    treadmillMode: Boolean,
+    treadmillSpeedKmh: Double,
+    onTreadmillSpeedChange: (Double) -> Unit,
     keepScreenOn: Boolean,
     onDistanceChanged: (Double) -> Unit,
     onPauseResume: () -> Unit,
@@ -122,12 +128,17 @@ fun WorkoutScreen(
         Column(
             modifier = Modifier
                 .fillMaxSize()
+                .verticalScroll(rememberScrollState())
                 .padding(horizontal = 24.dp, vertical = 20.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Center,
         ) {
             Text(
-                text = phaseLabel(snapshot.currentPhase.type),
+                text = if (snapshot.status == WorkoutSessionStatus.ANNOUNCING) {
+                    "استمع للتعليمات أولاً"
+                } else {
+                    phaseLabel(snapshot.currentPhase.type)
+                },
                 color = Orange,
                 style = MaterialTheme.typography.headlineMedium,
                 fontWeight = FontWeight.SemiBold,
@@ -139,9 +150,31 @@ fun WorkoutScreen(
                 fontSize = 64.sp,
             )
             Text(
-                text = "متبقي لهذه المرحلة",
+                text = if (snapshot.status == WorkoutSessionStatus.ANNOUNCING) {
+                    "لم يبدأ وقت المرحلة بعد"
+                } else {
+                    "متبقي لهذه المرحلة"
+                },
                 color = LightText,
                 style = MaterialTheme.typography.bodyLarge,
+            )
+
+            Spacer(modifier = Modifier.height(14.dp))
+            LinearProgressIndicator(
+                progress = { snapshot.completionRatio.toFloat().coerceIn(0f, 1f) },
+                modifier = Modifier.fillMaxWidth().height(8.dp),
+                color = Orange,
+                trackColor = DarkPanel,
+            )
+            Text(
+                text = if (snapshot.status == WorkoutSessionStatus.ANNOUNCING) {
+                    "يبدأ العداد بعد انتهاء التعليمات الصوتية مباشرة"
+                } else {
+                    "أنت الآن في مرحلة ${phaseLabel(snapshot.currentPhase.type)}"
+                },
+                color = LightText,
+                style = MaterialTheme.typography.bodyMedium,
+                textAlign = TextAlign.Center,
             )
 
             Spacer(modifier = Modifier.height(18.dp))
@@ -159,7 +192,61 @@ fun WorkoutScreen(
                     value = displayHeartRate?.toInt()?.toString() ?: "—",
                     label = "النبض",
                 )
-                WorkoutMetric(value = formatDistance(displayDistance), label = "المسافة")
+                WorkoutMetric(
+                    value = formatDistance(displayDistance),
+                    label = if (treadmillMode) "مسافة تقديرية" else "المسافة",
+                )
+            }
+
+            Spacer(modifier = Modifier.height(12.dp))
+            Surface(
+                modifier = Modifier.fillMaxWidth(),
+                color = DarkPanel,
+                shape = RoundedCornerShape(18.dp),
+            ) {
+                Column(
+                    modifier = Modifier.fillMaxWidth().padding(12.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    Text(
+                        text = if (treadmillMode) {
+                            "سرعة ${phaseLabel(snapshot.currentPhase.type)} على التردمل"
+                        } else {
+                            "السرعة الحالية بحسب GPS"
+                        },
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = LightText,
+                    )
+                    Text(
+                        text = if (treadmillMode) {
+                            "%.1f كم/س".format(treadmillSpeedKmh)
+                        } else {
+                            metrics.speedKmh?.let { "%.1f كم/س".format(it) } ?: "— كم/س"
+                        },
+                        color = Color.White,
+                        style = MaterialTheme.typography.headlineMedium,
+                        fontWeight = FontWeight.Bold,
+                    )
+                    if (treadmillMode) {
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(16.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            OutlinedButton(
+                                onClick = { onTreadmillSpeedChange(treadmillSpeedKmh - 0.5) },
+                            ) {
+                                Text("− 0.5", color = Color.White)
+                            }
+                            Text("عدّلها لتطابق شاشة التردمل", color = LightText)
+                            OutlinedButton(
+                                onClick = { onTreadmillSpeedChange(treadmillSpeedKmh + 0.5) },
+                            ) {
+                                Text("+ 0.5", color = Color.White)
+                            }
+                        }
+                    }
+                }
             }
 
             Spacer(modifier = Modifier.height(10.dp))
@@ -174,10 +261,10 @@ fun WorkoutScreen(
             Spacer(modifier = Modifier.height(8.dp))
             Text(
                 text = when {
-                    !gpsTrackingEnabled && watchFresh && displayHeartRate != null ->
-                        "وضع التردمل • النبض من الساعة • GPS الهاتف متوقف"
-                    !gpsTrackingEnabled ->
-                        "وضع التردمل • GPS الهاتف متوقف"
+                    treadmillMode && watchFresh && displayHeartRate != null ->
+                        "التردمل • المسافة من السرعة المختارة • النبض من الساعة"
+                    treadmillMode ->
+                        "التردمل • المسافة محسوبة تقديريًا من السرعة والوقت"
                     watchFresh && displayHeartRate != null ->
                         "النبض من الساعة • المسافة من أفضل مصدر متاح"
                     !metrics.locationPermissionGranted ->

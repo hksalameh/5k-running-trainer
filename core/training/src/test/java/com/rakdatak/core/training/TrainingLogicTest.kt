@@ -10,10 +10,17 @@ import org.junit.Test
 class TrainingLogicTest {
 
     @Test
-    fun baselineContainsTwentyFourSessionsAndEndsAtThirtyMinutesContinuousRun() {
+    fun baselineContainsTwentySevenSessionsAndEndsAtThirtyMinutesContinuousRun() {
         val plan = BaselinePlanFactory.create()
 
-        assertEquals(24, plan.size)
+        assertEquals(27, plan.size)
+        assertEquals((1..9).toList(), plan.map { it.week }.distinct())
+        assertEquals(3, plan.count { it.week == 2 })
+        assertEquals(29 * 60, plan.first { it.week == 2 }.totalDurationSeconds)
+        assertEquals(300, plan.first().phases.first().durationSeconds)
+        assertEquals(300, plan.first().phases.last().durationSeconds)
+        assertEquals(28 * 60, plan.first { it.week == 8 }.phases[1].durationSeconds)
+        assertEquals(30 * 60, plan.first { it.week == 9 }.phases[1].durationSeconds)
         assertEquals(1_800, plan.last().phases.maxOf { it.durationSeconds })
     }
 
