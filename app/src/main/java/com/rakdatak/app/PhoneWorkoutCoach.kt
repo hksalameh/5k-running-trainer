@@ -5,7 +5,6 @@ import android.media.AudioAttributes
 import android.media.AudioFocusRequest
 import android.media.AudioManager
 import android.media.MediaPlayer
-import android.media.ToneGenerator
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
@@ -24,6 +23,7 @@ import androidx.compose.ui.platform.LocalContext
 import com.rakdatak.app.settings.WorkoutVoice
 import com.rakdatak.core.training.WorkoutSessionSnapshot
 import com.rakdatak.core.training.WorkoutSessionStatus
+import com.rakdatak.core.training.WorkoutCueTiming
 import com.rakdatak.core.training.model.WorkoutPhase
 import com.rakdatak.core.training.model.WorkoutPhaseType
 import java.io.File
@@ -58,7 +58,7 @@ class PhoneWorkoutCoach(
     private val workoutVoice: WorkoutVoice,
 ) : TextToSpeech.OnInitListener, AutoCloseable {
     private val appContext = context.applicationContext
-    private val voicePack = if (workoutVoice == WorkoutVoice.ALI) ALI_PACK else CHARON_PACK
+    private val voicePack = if (workoutVoice == WorkoutVoice.DESPINA) DESPINA_PACK else CHARON_PACK
     private val voicePackFile = File(appContext.filesDir, voicePack.filename)
 
     private val audioManager = appContext.getSystemService(AudioManager::class.java)
@@ -74,7 +74,6 @@ class PhoneWorkoutCoach(
 
     private val utteranceCounter = AtomicInteger(0)
     private val tts = TextToSpeech(appContext, this)
-    private val toneGenerator = ToneGenerator(AudioManager.STREAM_MUSIC, 90)
     private val mainHandler = Handler(Looper.getMainLooper())
     private val voiceExecutor = Executors.newSingleThreadExecutor()
 
@@ -96,9 +95,7 @@ class PhoneWorkoutCoach(
     private var announcingPhaseIndex = -1
     private var announcedWarmupSpeedIncrease = false
     private var lastPhaseIndex = -1
-    private var oneMinuteCuePhase = -1
-    private var tenSecondCuePhase = -1
-    private var lastFinalBeepSecond = -1
+    private var preparedNextCuePhase = -1
     private var completionAnnounced = false
     private var needsSessionReset = false
 
@@ -198,6 +195,7 @@ class PhoneWorkoutCoach(
             snapshot.status == WorkoutSessionStatus.READY
         ) {
             cancelCuePlayback()
+            preparedNextCuePhase = -1
             return
         }
 
@@ -213,9 +211,7 @@ class PhoneWorkoutCoach(
             announcingPhaseIndex = snapshot.phaseIndex
             val isFirstPhase = lastPhaseIndex == -1
             lastPhaseIndex = snapshot.phaseIndex
-            oneMinuteCuePhase = -1
-            tenSecondCuePhase = -1
-            lastFinalBeepSecond = -1
+            preparedNextCuePhase = -1
             if (!isFirstPhase && vibrationEnabled) vibrateTransition()
             if (soundCuesEnabled) {
                 val announcedPhase = snapshot.phaseIndex
@@ -248,96 +244,49 @@ class PhoneWorkoutCoach(
         if (snapshot.phaseIndex != lastPhaseIndex) {
             val isFirstPhase = lastPhaseIndex == -1
             lastPhaseIndex = snapshot.phaseIndex
-            oneMinuteCuePhase = -1
-            tenSecondCuePhase = -1
-            lastFinalBeepSecond = -1
+            preparedNextCuePhase = -1
 
             if (!isFirstPhase && vibrationEnabled) vibrateTransition()
 
-            // A recovered mid-phase workout does not replay a starting cue.
-        }
-
-        if (
-            snapshot.currentPhase.durationSeconds > 60 &&
-            oneMinuteCuePhase != snapshot.phaseIndex &&
-            shouldStartAlignedCue(
-                remainingSeconds = snapshot.phaseRemainingSeconds,
-                targetRemainingSeconds = 60,
-                clipKey = CLIP_ONE_MINUTE,
-            )
-        ) {
-            oneMinuteCuePhase = snapshot.phaseIndex
-            if (soundCuesEnabled) {
-                speakCueAligned(
-                    clipKey = CLIP_ONE_MINUTE,
-                    fallbackText = "باقي دقيقة واحدة على هذه المرحلة.",
-                    currentRemainingSeconds = snapshot.phaseRemainingSeconds,
-                    targetRemainingSeconds = 60,
+            // The phone clock runs continuously. Only the initial warm-up is
+            // narrated at the start; all other phases were announced BEFORE
+            // their boundaries during the previous phase.
+            if (isFirstPhase && snapshot.phaseIndex == 0 &&
+                snapshot.totalElapsedSeconds <= 1 && soundCuesEnabled
+            ) {
+                speakCue(
+                    clipKey = clipKeyForPhase(snapshot.currentPhase),
+                    fallbackText = phaseStartPrompt(snapshot.currentPhase),
                 )
             }
         }
 
-        if (
-            tenSecondCuePhase != snapshot.phaseIndex &&
-            shouldStartAlignedCue(
-                remainingSeconds = snapshot.phaseRemainingSeconds,
-                targetRemainingSeconds = 10,
-                clipKey = if (snapshot.nextPhase == null) CLIP_FINISH_TEN_SECONDS else CLIP_TRANSITION,
-            )
+        val upcoming = snapshot.nextPhase
+        if (upcoming != null && soundCuesEnabled &&
+            preparedNextCuePhase != snapshot.phaseIndex
         ) {
-            tenSecondCuePhase = snapshot.phaseIndex
-            if (soundCuesEnabled) {
-                val finishing = snapshot.nextPhase == null
-                speakCueAligned(
-                    clipKey = if (finishing) CLIP_FINISH_TEN_SECONDS else CLIP_TRANSITION,
-                    fallbackText = if (finishing) {
-                        "استعد. باقي عشر ثوانٍ وينتهي التمرين."
-                    } else {
-                        "استعد. المرحلة التالية بعد عشر ثوانٍ."
-                    },
-                    currentRemainingSeconds = snapshot.phaseRemainingSeconds,
-                    targetRemainingSeconds = 10,
+            val key = clipKeyForPhase(upcoming)
+            val duration = key?.let { voicePack.clips[it]?.durationMs }
+            if (duration != null &&
+                WorkoutCueTiming.shouldQueue(snapshot.phaseRemainingSeconds, duration)
+            ) {
+                preparedNextCuePhase = snapshot.phaseIndex
+                val delayMs = WorkoutCueTiming.delayUntilCue(
+                    snapshot.phaseRemainingSeconds, duration,
                 )
+                // The runner keeps moving in the current phase while hearing
+                // "المرحلة الجاية ... بلّش". The final word lands at the
+                // next phase boundary, with no pause or countdown horn.
+                if (!playNaturalClip(key!!, delayMs)) {
+                    speakCue(key, phaseStartPrompt(upcoming))
+                }
+            } else if (key == null &&
+                snapshot.phaseRemainingSeconds == 6
+            ) {
+                preparedNextCuePhase = snapshot.phaseIndex
+                speakWithTts(phaseStartPrompt(upcoming))
             }
         }
-
-        if (
-            snapshot.phaseRemainingSeconds in 1..3 &&
-            lastFinalBeepSecond != snapshot.phaseRemainingSeconds
-        ) {
-            lastFinalBeepSecond = snapshot.phaseRemainingSeconds
-            if (soundCuesEnabled) playFinalCountdownBeep(snapshot.phaseRemainingSeconds)
-            if (vibrationEnabled) vibrateCountdownTick(snapshot.phaseRemainingSeconds)
-        }
-    }
-
-    private fun shouldStartAlignedCue(
-        remainingSeconds: Int,
-        targetRemainingSeconds: Int,
-        clipKey: String,
-    ): Boolean {
-        val naturalReady = naturalPlayer != null && voicePack.clips[clipKey] != null
-        return if (naturalReady) {
-            remainingSeconds in (targetRemainingSeconds + 1)..(targetRemainingSeconds + ALIGNMENT_LOOKAHEAD_SECONDS)
-        } else {
-            remainingSeconds == targetRemainingSeconds
-        }
-    }
-
-    private fun speakCueAligned(
-        clipKey: String,
-        fallbackText: String,
-        currentRemainingSeconds: Int,
-        targetRemainingSeconds: Int,
-    ) {
-        val clip = voicePack.clips[clipKey]
-        if (clip != null && naturalPlayer != null) {
-            val millisecondsUntilTarget =
-                (currentRemainingSeconds - targetRemainingSeconds).coerceAtLeast(0) * 1_000L
-            val delayMs = (millisecondsUntilTarget - clip.durationMs).coerceAtLeast(0L)
-            if (playNaturalClip(clipKey, delayMs)) return
-        }
-        speakWithTts(fallbackText)
     }
 
     private fun speakCue(
@@ -529,6 +478,7 @@ class PhoneWorkoutCoach(
         WorkoutPhaseType.RUN -> when (phase.durationSeconds) {
             60 -> CLIP_RUN_60
             90 -> CLIP_RUN_90
+            120 -> CLIP_RUN_120
             180 -> CLIP_RUN_180
             300 -> CLIP_RUN_300
             480 -> CLIP_RUN_480
@@ -554,9 +504,9 @@ class PhoneWorkoutCoach(
         val duration = arabicDuration(phase.durationSeconds)
         return when (phase.type) {
             WorkoutPhaseType.WARM_UP -> "ابدأ إحماءً خفيفًا لمدة $duration."
-            WorkoutPhaseType.WALK -> "اِمْشِ الآن لمدة $duration."
-            WorkoutPhaseType.RUN -> "اِرْكُضْ الآن لمدة $duration."
-            WorkoutPhaseType.COOL_DOWN -> "خفف السرعة للتهدئة لمدة $duration."
+            WorkoutPhaseType.WALK -> "المرحلة الجايّة مشي لمدة $duration، بلّش."
+            WorkoutPhaseType.RUN -> "المرحلة الجايّة ركض لمدة $duration، بلّش."
+            WorkoutPhaseType.COOL_DOWN -> "المرحلة الجايّة تهدئة بالمشي لمدة $duration، بلّش."
         }
     }
 
@@ -598,15 +548,6 @@ class PhoneWorkoutCoach(
         }
     }
 
-    private fun playFinalCountdownBeep(secondsRemaining: Int) {
-        val tone = if (secondsRemaining == 1) {
-            ToneGenerator.TONE_PROP_ACK
-        } else {
-            ToneGenerator.TONE_PROP_BEEP
-        }
-        toneGenerator.startTone(tone, 150)
-    }
-
     private fun speakWithTts(text: String, onFinished: (() -> Unit)? = null) {
         if (!ready) {
             pendingFirstCue = text
@@ -623,7 +564,6 @@ class PhoneWorkoutCoach(
     }
 
     private fun cancelCuePlayback() {
-        if (announcingPhaseIndex < 0) return
         announcingPhaseIndex = -1
         pendingNaturalCue = null
         playbackToken += 1
@@ -640,9 +580,7 @@ class PhoneWorkoutCoach(
         lastPhaseIndex = -1
         announcingPhaseIndex = -1
         announcedWarmupSpeedIncrease = false
-        oneMinuteCuePhase = -1
-        tenSecondCuePhase = -1
-        lastFinalBeepSecond = -1
+        preparedNextCuePhase = -1
         completionAnnounced = false
         needsSessionReset = false
     }
@@ -680,20 +618,16 @@ class PhoneWorkoutCoach(
         naturalPlayer?.release()
         naturalPlayer = null
         voiceExecutor.shutdownNow()
-        toneGenerator.release()
         tts.stop()
         tts.shutdown()
     }
 
     private companion object {
-        const val ALIGNMENT_LOOKAHEAD_SECONDS = 5
-
         const val CLIP_WARMUP_300 = "warmup_300"
         const val CLIP_WARMUP_SPEED_60 = "warmup_speed_60"
-        const val CLIP_TRANSITION = "transition"
-        const val CLIP_ONE_MINUTE = "one_minute"
         const val CLIP_RUN_60 = "run_60"
         const val CLIP_RUN_90 = "run_90"
+        const val CLIP_RUN_120 = "run_120"
         const val CLIP_RUN_180 = "run_180"
         const val CLIP_RUN_300 = "run_300"
         const val CLIP_RUN_480 = "run_480"
@@ -708,64 +642,59 @@ class PhoneWorkoutCoach(
         const val CLIP_WALK_180 = "walk_180"
         const val CLIP_WALK_300 = "walk_300"
         const val CLIP_COOLDOWN_300 = "cooldown_300"
-        const val CLIP_FINISH_TEN_SECONDS = "finish_10"
         const val CLIP_FINISHED = "finished"
 
         val CHARON_PACK = VoicePackSpec(
-            filename = "rakdatak_ar_charon_v3.wav",
-            assetPath = "voice_packs/rakdatak_ar_charon_v3.wav",
+            filename = "rakdatak_ar_charon_v4.wav",
+            assetPath = "voice_packs/rakdatak_ar_charon_v4.wav",
             clips = mapOf(
-                "warmup_300" to VoiceClip(0, 9128),
-                "warmup_speed_60" to VoiceClip(9328, 15126),
-                "transition" to VoiceClip(15326, 18758),
-                "one_minute" to VoiceClip(18958, 21275),
-                "run_60" to VoiceClip(21475, 24381),
-                "run_90" to VoiceClip(24581, 28198),
-                "run_180" to VoiceClip(28398, 32029),
-                "run_300" to VoiceClip(32229, 35918),
-                "run_480" to VoiceClip(36118, 39596),
-                "run_600" to VoiceClip(39796, 42861),
-                "run_1200" to VoiceClip(43061, 46397),
-                "run_1500" to VoiceClip(46597, 50378),
-                "run_1680" to VoiceClip(50578, 54218),
-                "run_1800" to VoiceClip(54418, 58970),
-                "walk_90" to VoiceClip(59170, 62786),
-                "walk_120" to VoiceClip(62986, 66450),
-                "walk_150" to VoiceClip(66650, 70139),
-                "walk_180" to VoiceClip(70339, 73969),
-                "walk_300" to VoiceClip(74169, 77521),
-                "cooldown_300" to VoiceClip(77721, 83375),
-                "finish_10" to VoiceClip(83575, 86494),
-                "finished" to VoiceClip(86694, 90601),
+                "warmup_300" to VoiceClip(0, 7077),
+                "warmup_speed_60" to VoiceClip(7277, 12093),
+                "run_60" to VoiceClip(12293, 15701),
+                "run_90" to VoiceClip(15901, 19022),
+                "run_120" to VoiceClip(19222, 22836),
+                "run_180" to VoiceClip(23036, 26700),
+                "run_300" to VoiceClip(26900, 30730),
+                "run_480" to VoiceClip(30930, 34780),
+                "run_600" to VoiceClip(34980, 38457),
+                "run_1200" to VoiceClip(38657, 42391),
+                "run_1500" to VoiceClip(42591, 46948),
+                "run_1680" to VoiceClip(47148, 51358),
+                "run_1800" to VoiceClip(51558, 56146),
+                "walk_90" to VoiceClip(56346, 59806),
+                "walk_120" to VoiceClip(60006, 63311),
+                "walk_150" to VoiceClip(63511, 66907),
+                "walk_180" to VoiceClip(67107, 71426),
+                "walk_300" to VoiceClip(71626, 75001),
+                "cooldown_300" to VoiceClip(75201, 79435),
+                "finished" to VoiceClip(79635, 83058),
             ),
         )
 
-        val ALI_PACK = VoicePackSpec(
-            filename = "rakdatak_ar_ali_v3.wav",
-            assetPath = "voice_packs/rakdatak_ar_ali_v3.wav",
+        val DESPINA_PACK = VoicePackSpec(
+            filename = "rakdatak_ar_despina_v4.wav",
+            assetPath = "voice_packs/rakdatak_ar_despina_v4.wav",
             clips = mapOf(
-                "warmup_300" to VoiceClip(0, 9079),
-                "warmup_speed_60" to VoiceClip(9279, 15832),
-                "transition" to VoiceClip(16032, 19057),
-                "one_minute" to VoiceClip(19257, 21305),
-                "run_60" to VoiceClip(21505, 24641),
-                "run_90" to VoiceClip(24841, 28529),
-                "run_180" to VoiceClip(28729, 32398),
-                "run_300" to VoiceClip(32598, 36290),
-                "run_480" to VoiceClip(36490, 40188),
-                "run_600" to VoiceClip(40388, 44123),
-                "run_1200" to VoiceClip(44323, 48151),
-                "run_1500" to VoiceClip(48351, 52511),
-                "run_1680" to VoiceClip(52711, 56898),
-                "run_1800" to VoiceClip(57098, 61643),
-                "walk_90" to VoiceClip(61843, 65537),
-                "walk_120" to VoiceClip(65737, 69260),
-                "walk_150" to VoiceClip(69460, 73307),
-                "walk_180" to VoiceClip(73507, 77134),
-                "walk_300" to VoiceClip(77334, 80977),
-                "cooldown_300" to VoiceClip(81177, 87257),
-                "finish_10" to VoiceClip(87457, 90334),
-                "finished" to VoiceClip(90534, 94527),
+                "warmup_300" to VoiceClip(0, 7004),
+                "warmup_speed_60" to VoiceClip(7204, 12139),
+                "run_60" to VoiceClip(12339, 15236),
+                "run_90" to VoiceClip(15436, 18841),
+                "run_120" to VoiceClip(19041, 22313),
+                "run_180" to VoiceClip(22513, 26370),
+                "run_300" to VoiceClip(26570, 29858),
+                "run_480" to VoiceClip(30058, 33378),
+                "run_600" to VoiceClip(33578, 37074),
+                "run_1200" to VoiceClip(37274, 41266),
+                "run_1500" to VoiceClip(41466, 45333),
+                "run_1680" to VoiceClip(45533, 49594),
+                "run_1800" to VoiceClip(49794, 53934),
+                "walk_90" to VoiceClip(54134, 57826),
+                "walk_120" to VoiceClip(58026, 61579),
+                "walk_150" to VoiceClip(61779, 65454),
+                "walk_180" to VoiceClip(65654, 69743),
+                "walk_300" to VoiceClip(69943, 73801),
+                "cooldown_300" to VoiceClip(74001, 77896),
+                "finished" to VoiceClip(78096, 81334),
             ),
         )
     }

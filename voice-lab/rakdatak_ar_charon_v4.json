@@ -1,0 +1,82 @@
+{
+  "warmup_300": {
+    "startMs": 0,
+    "endMs": 7077
+  },
+  "warmup_speed_60": {
+    "startMs": 7277,
+    "endMs": 12093
+  },
+  "run_60": {
+    "startMs": 12293,
+    "endMs": 15701
+  },
+  "run_90": {
+    "startMs": 15901,
+    "endMs": 19022
+  },
+  "run_120": {
+    "startMs": 19222,
+    "endMs": 22836
+  },
+  "run_180": {
+    "startMs": 23036,
+    "endMs": 26700
+  },
+  "run_300": {
+    "startMs": 26900,
+    "endMs": 30730
+  },
+  "run_480": {
+    "startMs": 30930,
+    "endMs": 34780
+  },
+  "run_600": {
+    "startMs": 34980,
+    "endMs": 38457
+  },
+  "run_1200": {
+    "startMs": 38657,
+    "endMs": 42391
+  },
+  "run_1500": {
+    "startMs": 42591,
+    "endMs": 46948
+  },
+  "run_1680": {
+    "startMs": 47148,
+    "endMs": 51358
+  },
+  "run_1800": {
+    "startMs": 51558,
+    "endMs": 56146
+  },
+  "walk_90": {
+    "startMs": 56346,
+    "endMs": 59806
+  },
+  "walk_120": {
+    "startMs": 60006,
+    "endMs": 63311
+  },
+  "walk_150": {
+    "startMs": 63511,
+    "endMs": 66907
+  },
+  "walk_180": {
+    "startMs": 67107,
+    "endMs": 71426
+  },
+  "walk_300": {
+    "startMs": 71626,
+    "endMs": 75001
+  },
+  "cooldown_300": {
+    "startMs": 75201,
+    "endMs": 79435
+  },
+  "finished": {
+    "startMs": 79635,
+    "endMs": 83058
+  }
+}

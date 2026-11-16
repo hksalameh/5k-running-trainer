@@ -21,6 +21,43 @@ class WorkoutSessionEngineTest {
     )
 
     @Test
+    fun phoneTransitionsWithoutStoppingForInstructionsAndCanCrossSeveralPhases() {
+        val engine = WorkoutSessionEngine(plan, continuousPhaseTransitions = true)
+        assertEquals(WorkoutSessionStatus.RUNNING, engine.start().status)
+        val afterWarmUp = engine.tick(2)
+        assertEquals(WorkoutSessionStatus.RUNNING, afterWarmUp.status)
+        assertEquals(WorkoutPhaseType.RUN, afterWarmUp.currentPhase.type)
+        assertEquals(2, afterWarmUp.totalElapsedSeconds)
+        val beforeCoolDown = engine.tick(3)
+        assertEquals(WorkoutSessionStatus.RUNNING, beforeCoolDown.status)
+        assertEquals(WorkoutPhaseType.COOL_DOWN, beforeCoolDown.currentPhase.type)
+        assertEquals(3, beforeCoolDown.longestContinuousRunSeconds)
+        assertEquals(5, beforeCoolDown.totalElapsedSeconds)
+        assertEquals(WorkoutSessionStatus.COMPLETED, engine.tick(2).status)
+        assertEquals(7, engine.snapshot().totalElapsedSeconds)
+    }
+
+    @Test
+    fun phoneResumeOnExactPhaseBoundaryDoesNotWaitForSpeech() {
+        val engine = WorkoutSessionEngine(plan, continuousPhaseTransitions = true)
+        val restored = engine.restore(elapsedSeconds = 2, paused = true)
+        assertEquals(WorkoutSessionStatus.PAUSED, restored.status)
+        assertEquals(WorkoutPhaseType.RUN, restored.currentPhase.type)
+        assertEquals(WorkoutSessionStatus.RUNNING, engine.resume().status)
+        assertEquals(3, engine.tick(1).totalElapsedSeconds)
+    }
+
+    @Test
+    fun phoneBulkTickCrossesPhasesWithoutDiscardingTime() {
+        val engine = WorkoutSessionEngine(plan, continuousPhaseTransitions = true)
+        engine.start()
+        val completed = engine.tick(10)
+        assertEquals(WorkoutSessionStatus.COMPLETED, completed.status)
+        assertEquals(7, completed.totalElapsedSeconds)
+        assertEquals(3, completed.longestContinuousRunSeconds)
+    }
+
+    @Test
     fun tickMovesAcrossPhasesAndCompletes() {
         val engine = WorkoutSessionEngine(plan)
 

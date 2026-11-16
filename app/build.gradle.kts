@@ -11,17 +11,18 @@ android {
         applicationId = "com.rakdatak.app"
         minSdk = 28
         targetSdk = 37
-        versionCode = 14
-        versionName = "0.5.1"
+        versionCode = 15
+        versionName = "0.5.2"
         manifestPlaceholders["appName"] = "ركضتك"
     }
 
     buildTypes {
         getByName("debug") {
-            // Installs alongside the earlier debug APK, preserving its saved workouts and week.
-            applicationIdSuffix = ".preview"
+            // CI debug signing keys differ by run; separate package prevents an
+            // update-signature conflict with the previously installed 0.5.1 test APK.
+            applicationIdSuffix = ".preview052"
             versionNameSuffix = "-TEST"
-            manifestPlaceholders["appName"] = "ركضتك - تجربة"
+            manifestPlaceholders["appName"] = "ركضتك 0.5.2 - تجربة"
         }
     }
 

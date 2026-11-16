@@ -12,7 +12,7 @@ private val Context.appSettingsDataStore by preferencesDataStore(name = "app_set
 
 enum class WorkoutVoice {
     CHARON,
-    ALI,
+    DESPINA,
 }
 
 data class AppSettings(
@@ -28,7 +28,7 @@ class AppSettingsRepository(private val context: Context) {
             soundCuesEnabled = preferences[SOUND_CUES_ENABLED] ?: true,
             workoutVoice = when (preferences[WORKOUT_VOICE]) {
                 "MALE", "CHARON" -> WorkoutVoice.CHARON
-                "FEMALE", "ALI" -> WorkoutVoice.ALI
+                "FEMALE", "ALI", "DESPINA" -> WorkoutVoice.DESPINA
                 else -> WorkoutVoice.CHARON
             },
             vibrationEnabled = preferences[VIBRATION_ENABLED] ?: true,

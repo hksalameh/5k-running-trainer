@@ -191,7 +191,7 @@ private fun RakdatakApp(
         val restoredPlan = restoredWorkout?.planId
             ?.let { savedId -> plans.firstOrNull { it.id == savedId } }
             ?: plan
-        WorkoutSessionEngine(restoredPlan).also { restoredEngine ->
+        WorkoutSessionEngine(restoredPlan, continuousPhaseTransitions = true).also { restoredEngine ->
             restoredWorkout?.let { saved ->
                 restoredEngine.restore(
                     elapsedSeconds = saved.elapsedSeconds,
@@ -211,7 +211,7 @@ private fun RakdatakApp(
         mutableStateOf(restoredWorkout?.runDistanceMeters?.coerceAtLeast(0.0) ?: 0.0)
     }
     val treadmillMode = profile.trainingEnvironment == TrainingEnvironment.TREADMILL
-    val manageWearFromPhone = !context.packageName.endsWith(".preview")
+    val manageWearFromPhone = !context.packageName.contains(".preview")
     val speedPreferences = remember {
         context.applicationContext.getSharedPreferences("treadmill_speed", android.content.Context.MODE_PRIVATE)
     }
@@ -368,7 +368,7 @@ private fun RakdatakApp(
             activeDistanceMeters = distanceMeters,
             onStartWorkout = {
                 if (!profile.safetyReviewNeeded) {
-                    engine = WorkoutSessionEngine(plan)
+                    engine = WorkoutSessionEngine(plan, continuousPhaseTransitions = true)
                     snapshot = engine.snapshot()
                     distanceMeters = 0.0
                     runDistanceMeters = 0.0
@@ -552,7 +552,7 @@ private fun RakdatakApp(
             settings = settings,
             profileSummary = profileSummary(profile),
             currentWeek = plan.week,
-            previewWeekSelectionEnabled = context.packageName.endsWith(".preview"),
+            previewWeekSelectionEnabled = context.packageName.contains(".preview"),
             onPreviewWeekChanged = { week ->
                 scope.launch {
                     progressRepository.selectWeekForPreview(week)

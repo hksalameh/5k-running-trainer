@@ -51,12 +51,12 @@ jobs:
           script: |
             adb install -r app/build/outputs/apk/debug/app-debug.apk
             adb logcat -c
-            adb shell am start -W -n com.rakdatak.app.preview/com.rakdatak.app.MainActivity
+            adb shell am start -W -n com.rakdatak.app.preview052/com.rakdatak.app.MainActivity
             sleep 4
             adb shell screencap -p /sdcard/rakdatak-ui.png
             adb pull /sdcard/rakdatak-ui.png rakdatak-ui.png
-            adb shell pidof com.rakdatak.app.preview
-            adb logcat -d -t 300 | grep -E "FATAL EXCEPTION|Process: com.rakdatak.app.preview" && exit 1 || true
+            adb shell pidof com.rakdatak.app.preview052
+            adb logcat -d -t 300 | grep -E "FATAL EXCEPTION|Process: com.rakdatak.app.preview052" && exit 1 || true
 
       - name: Upload phone UI screenshot for design review
         if: always()
@@ -85,10 +85,10 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          TAG="phone-v0.5.1"
-          APK="app/build/outputs/apk/debug/app-debug.apk#rakdatak-phone-0.5.1.apk"
+          TAG="phone-v0.5.2"
+          APK="app/build/outputs/apk/debug/app-debug.apk#rakdatak-phone-0.5.2.apk"
           if gh release view "$TAG" >/dev/null 2>&1; then
             gh release upload "$TAG" "$APK" --clobber
           else
-            gh release create "$TAG" "$APK" --target "$GITHUB_SHA" --title "ركضتك - هاتف 0.5.1" --notes "معاينة بصوتي Charon (Auditext) وAli (ElevenLabs) اللذين اختارهما المستخدم، 22 توجيهاً صوتياً لكل صوت دون إنترنت. الهدف ركض 5 كم أو ركض 30 دقيقة، والمشي للإحماء فقط. هذه النسخة للاختبار غير التجاري؛ اختيار Ali خاضع لترخيص ElevenLabs المجاني ويتطلب نسب الصوت إلى المصدر." --prerelease
+            gh release create "$TAG" "$APK" --target "$GITHUB_SHA" --title "ركضتك - هاتف 0.5.2" --notes "معاينة بصوت رجل Charon وصوت امرأة Despina من Auditext. انتقالات تدريب مستمرة دون إيقاف العداد؛ يبدأ نطق المرحلة التالية أثناء المرحلة السابقة وتصل كلمة بلّش إلى لحظة انتقال المرحلة. لا زامور ولا تنبيه عشر ثوان. زرا ناقص وزايد ظاهران. يعمل الصوت دون إنترنت." --prerelease
           fi

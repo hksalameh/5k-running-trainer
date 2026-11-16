@@ -224,7 +224,7 @@ fun SettingsScreen(
                         color = Black,
                     )
                     Text(
-                        text = "نسخة تجريبية 0.5.1",
+                        text = "نسخة تجريبية 0.5.2",
                         style = MaterialTheme.typography.bodyMedium,
                         color = Gray,
                     )
@@ -262,7 +262,7 @@ private fun VoiceChoiceCard(
                 color = Black,
             )
             Text(
-                text = "اختر أحد الصوتين اللذين اعتمدتهما سابقاً لإعلانات علّموهم. يعملان دون إنترنت أثناء التدريب.",
+                text = "صوت رجل وصوت امرأة من نفس محرك الأصوات الطبيعي. يعملان دون إنترنت أثناء التدريب.",
                 style = MaterialTheme.typography.bodySmall,
                 color = Gray,
             )
@@ -274,19 +274,19 @@ private fun VoiceChoiceCard(
                     selected = selected == WorkoutVoice.CHARON,
                     onClick = { onSelected(WorkoutVoice.CHARON) },
                     enabled = enabled,
-                    label = { Text("Charon") },
+                    label = { Text("رجل — Charon") },
                     modifier = Modifier.weight(1f),
                 )
                 FilterChip(
-                    selected = selected == WorkoutVoice.ALI,
-                    onClick = { onSelected(WorkoutVoice.ALI) },
+                    selected = selected == WorkoutVoice.DESPINA,
+                    onClick = { onSelected(WorkoutVoice.DESPINA) },
                     enabled = enabled,
-                    label = { Text("Ali") },
+                    label = { Text("امرأة — Despina") },
                     modifier = Modifier.weight(1f),
                 )
             }
             Text(
-                text = "Charon من Auditext • Ali من ElevenLabs. استخدام Ali هنا تجريبي شخصي وغير تجاري (Audio generated with ElevenLabs).",
+                text = "التوجيهات مسجلة داخل التطبيق بصوت Charon وDespina من Auditext.",
                 style = MaterialTheme.typography.bodySmall,
                 color = Gray,
             )

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Split a consented TTS narration batch at long silences into exact workout cues.
 
-The input must have the same 22 spoken phrases as voice_lab.PHRASES, in insertion
+The input must have the same spoken phrases as voice_lab.PHRASES, in insertion
 order, separated by >=1.2 second silences. Never infer clip durations by text.
 """
 import argparse

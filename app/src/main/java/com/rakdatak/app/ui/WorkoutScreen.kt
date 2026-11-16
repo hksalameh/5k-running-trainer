@@ -252,21 +252,29 @@ fun WorkoutScreen(
                             )
                         }
                         Row(
-                            horizontalArrangement = Arrangement.spacedBy(16.dp),
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(12.dp),
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
                             OutlinedButton(
                                 onClick = { onTreadmillSpeedChange(treadmillSpeedKmh - 0.5) },
+                                modifier = Modifier.weight(1f).height(50.dp),
                             ) {
-                                Text("− 0.5", color = Color.White)
+                                Text("− 0.5", color = Color.White, fontSize = 20.sp)
                             }
-                            Text("عدّلها لتطابق شاشة التردمل", color = LightText)
                             OutlinedButton(
                                 onClick = { onTreadmillSpeedChange(treadmillSpeedKmh + 0.5) },
+                                modifier = Modifier.weight(1f).height(50.dp),
                             ) {
-                                Text("+ 0.5", color = Color.White)
+                                Text("+ 0.5", color = Color.White, fontSize = 20.sp)
                             }
                         }
+                        Text(
+                            "الناقص يقلّل والزايد يزيد • عدّل السرعة لتطابق جهاز المشي",
+                            color = LightText,
+                            style = MaterialTheme.typography.bodySmall,
+                            textAlign = TextAlign.Center,
+                        )
                     }
                 }
             }
