@@ -24,6 +24,7 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -111,7 +112,7 @@ fun RakdatakHomeScreen(
                 }
             }
 
-            GoalCard(planProgress = planProgress)
+            GoalCard(planProgress = planProgress, progress = progress)
 
             WatchStatusCard(
                 connected = watchConnected,
@@ -188,7 +189,7 @@ fun RakdatakHomeScreen(
 }
 
 @Composable
-private fun GoalCard(planProgress: Float) {
+private fun GoalCard(planProgress: Float, progress: TrainingProgress) {
     Card(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(24.dp),
@@ -201,13 +202,43 @@ private fun GoalCard(planProgress: Float) {
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceBetween,
         ) {
-            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Column(
+                modifier = Modifier.weight(1f).padding(end = 12.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
                 Text("هدفك", color = Color(0xFFBDBDBD), style = MaterialTheme.typography.labelLarge)
-                Text("5 كم + 30 دقيقة", color = Color.White, style = MaterialTheme.typography.titleLarge)
+                Text("30 دقيقة ركض", color = Color.White, style = MaterialTheme.typography.titleLarge)
+                Text("أو 5 كم مشي/ركض", color = Orange, style = MaterialTheme.typography.titleMedium)
                 Text(
-                    "نبدأ من الصفر ونبني قدرتك تدريجيًا",
+                    "كل هدف مستقل • تقدم تدريجي حسب قدرتك",
                     color = Color(0xFFBDBDBD),
                     style = MaterialTheme.typography.bodyMedium,
+                )
+                Text(
+                    "أطول ركض: ${progress.longestContinuousRunSeconds / 60} من 30 دقيقة",
+                    color = Color.White,
+                    style = MaterialTheme.typography.bodySmall,
+                )
+                LinearProgressIndicator(
+                    progress = {
+                        (progress.longestContinuousRunSeconds / 1800f).coerceIn(0f, 1f)
+                    },
+                    modifier = Modifier.fillMaxWidth().height(6.dp),
+                    color = Orange,
+                    trackColor = Color(0xFF333333),
+                )
+                Text(
+                    "أطول مسافة: ${"%.2f".format(progress.longestDistanceMeters / 1000.0)} من 5 كم",
+                    color = Color.White,
+                    style = MaterialTheme.typography.bodySmall,
+                )
+                LinearProgressIndicator(
+                    progress = {
+                        (progress.longestDistanceMeters / 5000f).coerceIn(0f, 1f)
+                    },
+                    modifier = Modifier.fillMaxWidth().height(6.dp),
+                    color = Orange,
+                    trackColor = Color(0xFF333333),
                 )
             }
 
@@ -374,7 +405,7 @@ private fun NextWorkoutCard(
             }
 
             Text(
-                text = "الأسبوع ${plan.week} • الجلسة ${plan.session} • المدة ${formatTime(plan.totalDurationSeconds)}",
+                text = "الأسبوع ${plan.week} من 9 • الجلسة ${plan.session} من 3 • المدة ${formatTime(plan.totalDurationSeconds)}",
                 color = Black,
                 style = MaterialTheme.typography.titleSmall,
             )

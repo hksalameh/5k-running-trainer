@@ -99,7 +99,7 @@ class WearWorkoutService : LifecycleService() {
         val newEngine = WorkoutSessionEngine(plan)
         engine = newEngine
 
-        val started = if (elapsedSeconds > 0) {
+        val prepared = if (elapsedSeconds > 0) {
             newEngine.restore(
                 elapsedSeconds = elapsedSeconds,
                 paused = false,
@@ -107,6 +107,11 @@ class WearWorkoutService : LifecycleService() {
         } else {
             newEngine.start()
         }
+        // Standalone Wear OS workouts use tones/vibration, not spoken cues.
+        // A phone waits for speech, while the watch may start the phase immediately.
+        val started = if (prepared.status == WorkoutSessionStatus.ANNOUNCING) {
+            newEngine.instructionFinished()
+        } else prepared
 
         if (started.status == WorkoutSessionStatus.COMPLETED) {
             WearWorkoutRepository.start(started, gpsEnabled)
@@ -138,7 +143,10 @@ class WearWorkoutService : LifecycleService() {
                 val before = activeEngine.snapshot()
                 if (before.status != WorkoutSessionStatus.RUNNING) continue
 
-                val after = activeEngine.tick()
+                val advanced = activeEngine.tick()
+                val after = if (advanced.status == WorkoutSessionStatus.ANNOUNCING) {
+                    activeEngine.instructionFinished()
+                } else advanced
                 WearWorkoutRepository.updateSnapshot(after)
                 livePublisher.publish(after, combinedMetrics())
 

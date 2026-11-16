@@ -25,6 +25,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
+import com.rakdatak.core.training.WorkoutDistanceEstimator
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
@@ -157,9 +158,27 @@ private fun HistoryCard(entry: WorkoutHistoryEntry) {
             }
 
             Text(
-                text = "${formatTime(entry.elapsedSeconds)} • ${formatDistance(entry.distanceMeters)} • ${(entry.completionRatio * 100).toInt()}%",
+                text = "${formatTime(entry.elapsedSeconds)} • " +
+                    (if (entry.estimatedDistance) "مسافة تقديرية " else "") +
+                    "${formatDistance(entry.distanceMeters)} • ${(entry.completionRatio * 100).toInt()}%",
                 color = Gray,
                 style = MaterialTheme.typography.bodyMedium,
+            )
+            val averageSpeed = WorkoutDistanceEstimator.averageSpeedKmh(
+                entry.distanceMeters,
+                entry.elapsedSeconds,
+            )
+            Text(
+                text = if (averageSpeed != null) {
+                    "متوسط السرعة: %.1f كم/س%s".format(
+                        averageSpeed,
+                        if (entry.estimatedDistance) " (تقديري)" else "",
+                    )
+                } else {
+                    "السرعة غير متاحة • التمرين محفوظ"
+                },
+                color = Gray,
+                style = MaterialTheme.typography.bodySmall,
             )
         }
     }

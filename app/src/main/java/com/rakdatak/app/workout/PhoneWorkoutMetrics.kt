@@ -24,6 +24,7 @@ data class PhoneWorkoutMetrics(
     val distanceMeters: Double,
     val gpsAvailable: Boolean,
     val locationPermissionGranted: Boolean,
+    val speedKmh: Double? = null,
 )
 
 /**
@@ -53,6 +54,7 @@ fun rememberPhoneWorkoutMetrics(
             locationManager.isProviderEnabled(LocationManager.GPS_PROVIDER)
         }.getOrDefault(false))
     }
+    var speedKmh by remember { mutableStateOf<Double?>(null) }
 
     val permissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestMultiplePermissions(),
@@ -81,6 +83,9 @@ fun rememberPhoneWorkoutMetrics(
         val listener = object : LocationListener {
             override fun onLocationChanged(location: Location) {
                 if (location.accuracy > MAX_ACCEPTED_ACCURACY_METERS) return
+                if (location.hasSpeed() && location.speed in 0f..MAX_PLAUSIBLE_SPEED_MPS) {
+                    speedKmh = location.speed.toDouble() * 3.6
+                }
 
                 val previous = lastAcceptedLocation
                 lastAcceptedLocation = location
@@ -130,6 +135,7 @@ fun rememberPhoneWorkoutMetrics(
         distanceMeters = distanceMeters,
         gpsAvailable = gpsAvailable,
         locationPermissionGranted = permissionGranted,
+        speedKmh = if (active) speedKmh else null,
     )
 }
 

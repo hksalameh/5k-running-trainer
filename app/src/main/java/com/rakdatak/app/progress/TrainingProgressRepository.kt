@@ -20,6 +20,7 @@ data class TrainingProgress(
     val totalDistanceMeters: Long = 0L,
     val longestWorkoutSeconds: Long = 0L,
     val longestDistanceMeters: Long = 0L,
+    val longestContinuousRunSeconds: Int = 0,
     val currentPlanIndex: Int = 0,
 )
 
@@ -38,6 +39,7 @@ class TrainingProgressRepository(private val context: Context) {
             totalDistanceMeters = preferences[TOTAL_DISTANCE_METERS] ?: 0L,
             longestWorkoutSeconds = preferences[LONGEST_WORKOUT_SECONDS] ?: 0L,
             longestDistanceMeters = preferences[LONGEST_DISTANCE_METERS] ?: 0L,
+            longestContinuousRunSeconds = preferences[LONGEST_CONTINUOUS_RUN] ?: 0,
             currentPlanIndex = preferences[CURRENT_PLAN_INDEX] ?: 0,
         )
     }
@@ -46,9 +48,11 @@ class TrainingProgressRepository(private val context: Context) {
         elapsedSeconds: Int,
         completionRatio: Double,
         distanceMeters: Double? = null,
+        continuousRunSeconds: Int = 0,
     ) {
         require(elapsedSeconds >= 0)
         require(completionRatio in 0.0..1.0)
+        require(continuousRunSeconds >= 0)
 
         val safeDistanceMeters = (distanceMeters ?: 0.0).coerceAtLeast(0.0).roundToLong()
         context.trainingProgressDataStore.edit { preferences ->
@@ -67,6 +71,10 @@ class TrainingProgressRepository(private val context: Context) {
             preferences[TOTAL_DISTANCE_METERS] = previousDistance + safeDistanceMeters
             preferences[LONGEST_WORKOUT_SECONDS] = maxOf(previousLongestSeconds, elapsedSeconds.toLong())
             preferences[LONGEST_DISTANCE_METERS] = maxOf(previousLongestDistance, safeDistanceMeters)
+            preferences[LONGEST_CONTINUOUS_RUN] = maxOf(
+                preferences[LONGEST_CONTINUOUS_RUN] ?: 0,
+                continuousRunSeconds,
+            )
         }
     }
 
@@ -97,6 +105,15 @@ class TrainingProgressRepository(private val context: Context) {
         }
     }
 
+    /** For the separate preview APK only: jump directly to a week without touching production. */
+    suspend fun selectWeekForPreview(week: Int) {
+        require(context.packageName.endsWith(".preview"))
+        require(week in 1..9)
+        context.trainingProgressDataStore.edit { preferences ->
+            preferences[CURRENT_PLAN_INDEX] = (week - 1) * 3
+        }
+    }
+
     private companion object {
         val SAVED_WORKOUTS = intPreferencesKey("saved_workouts")
         val COMPLETED_WORKOUTS = intPreferencesKey("completed_workouts")
@@ -105,5 +122,6 @@ class TrainingProgressRepository(private val context: Context) {
         val LONGEST_WORKOUT_SECONDS = longPreferencesKey("longest_workout_seconds")
         val LONGEST_DISTANCE_METERS = longPreferencesKey("longest_distance_meters")
         val CURRENT_PLAN_INDEX = intPreferencesKey("current_plan_index")
+        val LONGEST_CONTINUOUS_RUN = intPreferencesKey("longest_continuous_run")
     }
 }

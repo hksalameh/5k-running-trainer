@@ -4,7 +4,10 @@ import android.os.Bundle
 import android.os.SystemClock
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
@@ -14,6 +17,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
@@ -21,6 +25,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.unit.LayoutDirection
+import androidx.core.view.WindowCompat
 import com.rakdatak.app.feedback.PostWorkoutFeedbackScreen
 import com.rakdatak.app.history.WorkoutHistoryRepository
 import com.rakdatak.app.history.WorkoutHistoryScreen
@@ -45,8 +50,11 @@ import com.rakdatak.app.wear.PhoneWearController
 import com.rakdatak.app.workout.ActiveWorkoutRepository
 import com.rakdatak.core.training.BaselinePlanFactory
 import com.rakdatak.core.training.TrainingScheduleEngine
+import com.rakdatak.core.training.WorkoutDistanceEstimator
 import com.rakdatak.core.training.WorkoutSessionEngine
 import com.rakdatak.core.training.WorkoutSessionStatus
+import com.rakdatak.core.training.model.TrainingAction
+import com.rakdatak.core.training.model.WorkoutPhaseType
 import java.time.LocalDateTime
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
@@ -66,10 +74,21 @@ private enum class AppScreen {
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        WindowCompat.getInsetsController(window, window.decorView).apply {
+            isAppearanceLightStatusBars = false
+            isAppearanceLightNavigationBars = false
+        }
         setContent {
             MaterialTheme {
                 CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Rtl) {
-                    RakdatakRoot()
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .background(Color(0xFF111111))
+                            .safeDrawingPadding(),
+                    ) {
+                        RakdatakRoot()
+                    }
                 }
             }
         }
@@ -155,6 +174,7 @@ private fun RakdatakApp(
     reminderScheduler: TrainingReminderScheduler,
     wearController: PhoneWearController,
 ) {
+    val context = LocalContext.current
     val plans = remember { BaselinePlanFactory.create() }
     val scheduleEngine = remember { TrainingScheduleEngine() }
     val planIndex = progress.currentPlanIndex.coerceIn(0, plans.lastIndex)
@@ -163,11 +183,15 @@ private fun RakdatakApp(
 
     val restoredWorkout = remember { activeWorkoutRepository.load() }
     val initialEngine = remember {
-        WorkoutSessionEngine(plan).also { restoredEngine ->
+        val restoredPlan = restoredWorkout?.planId
+            ?.let { savedId -> plans.firstOrNull { it.id == savedId } }
+            ?: plan
+        WorkoutSessionEngine(restoredPlan).also { restoredEngine ->
             restoredWorkout?.let { saved ->
                 restoredEngine.restore(
                     elapsedSeconds = saved.elapsedSeconds,
                     paused = true,
+                    recordedLongestContinuousRunSeconds = saved.longestContinuousRunSeconds,
                 )
             }
         }
@@ -178,6 +202,22 @@ private fun RakdatakApp(
     var distanceMeters by remember {
         mutableStateOf(restoredWorkout?.distanceMeters?.coerceAtLeast(0.0) ?: 0.0)
     }
+    val treadmillMode = profile.trainingEnvironment == TrainingEnvironment.TREADMILL
+    val manageWearFromPhone = !context.packageName.endsWith(".preview")
+    val speedPreferences = remember {
+        context.applicationContext.getSharedPreferences("treadmill_speed", android.content.Context.MODE_PRIVATE)
+    }
+    var walkSpeedKmh by remember {
+        mutableStateOf(speedPreferences.getFloat("walk_kmh", 4.5f).toDouble())
+    }
+    var runSpeedKmh by remember {
+        mutableStateOf(speedPreferences.getFloat("run_kmh", 7f).toDouble())
+    }
+    val currentWalkSpeed = rememberUpdatedState(walkSpeedKmh)
+    val currentRunSpeed = rememberUpdatedState(runSpeedKmh)
+    val speedForPhase: (WorkoutPhaseType) -> Double = { phaseType ->
+        if (phaseType == WorkoutPhaseType.RUN) runSpeedKmh else walkSpeedKmh
+    }
     var screen by remember { mutableStateOf(AppScreen.HOME) }
     var sessionRecorded by remember { mutableStateOf(false) }
 
@@ -186,10 +226,34 @@ private fun RakdatakApp(
         soundCuesEnabled = settings.soundCuesEnabled,
         workoutVoice = settings.workoutVoice,
         vibrationEnabled = settings.vibrationEnabled,
+        onPhaseInstructionFinished = { announcedPhase ->
+            if (snapshot.status == WorkoutSessionStatus.ANNOUNCING &&
+                snapshot.phaseIndex == announcedPhase
+            ) {
+                snapshot = engine.instructionFinished()
+                activeWorkoutRepository.save(snapshot, distanceMeters)
+            }
+        },
     )
 
-    val hasActiveWorkout = snapshot.status == WorkoutSessionStatus.RUNNING ||
+    // A TTS engine that never initializes must not trap the runner indefinitely.
+    LaunchedEffect(snapshot.status, snapshot.phaseIndex) {
+        if (snapshot.status == WorkoutSessionStatus.ANNOUNCING) {
+            val waitingFor = snapshot.phaseIndex
+            delay(12_000)
+            if (snapshot.status == WorkoutSessionStatus.ANNOUNCING &&
+                snapshot.phaseIndex == waitingFor
+            ) {
+                snapshot = engine.instructionFinished()
+                activeWorkoutRepository.save(snapshot, distanceMeters)
+            }
+        }
+    }
+
+    val hasActiveWorkout = snapshot.status == WorkoutSessionStatus.ANNOUNCING ||
+        snapshot.status == WorkoutSessionStatus.RUNNING ||
         snapshot.status == WorkoutSessionStatus.PAUSED
+    val workoutPlan = plans.firstOrNull { it.id == snapshot.planId } ?: plan
     val historyEntries = remember(screen, progress.savedWorkouts) {
         if (screen == AppScreen.HISTORY) historyRepository.load() else emptyList()
     }
@@ -217,7 +281,20 @@ private fun RakdatakApp(
                 if (elapsedWholeSeconds <= 0) continue
 
                 lastTickRealtime += elapsedWholeSeconds * 1_000L
-                snapshot = engine.tick(elapsedWholeSeconds)
+                val beforeTick = snapshot
+                val afterTick = engine.tick(elapsedWholeSeconds)
+                if (treadmillMode) {
+                    val activeSeconds = afterTick.totalElapsedSeconds - beforeTick.totalElapsedSeconds
+                    if (activeSeconds > 0) {
+                        distanceMeters += WorkoutDistanceEstimator.metersForSeconds(
+                            speedKilometersPerHour = if (
+                                beforeTick.currentPhase.type == WorkoutPhaseType.RUN
+                            ) currentRunSpeed.value else currentWalkSpeed.value,
+                            activeSeconds = activeSeconds,
+                        )
+                    }
+                }
+                snapshot = afterTick
                 activeWorkoutRepository.save(snapshot, distanceMeters)
 
                 if (snapshot.status == WorkoutSessionStatus.COMPLETED) {
@@ -227,13 +304,15 @@ private fun RakdatakApp(
                             elapsedSeconds = snapshot.totalElapsedSeconds,
                             completionRatio = snapshot.completionRatio,
                             distanceMeters = distanceMeters,
+                            continuousRunSeconds = snapshot.longestContinuousRunSeconds,
                         )
                         historyRepository.recordWorkout(
                             elapsedSeconds = snapshot.totalElapsedSeconds,
                             completionRatio = snapshot.completionRatio,
                             distanceMeters = distanceMeters,
+                            estimatedDistance = treadmillMode,
                         )
-                        wearController.stop()
+                        if (manageWearFromPhone) wearController.stop()
                     }
                     activeWorkoutRepository.clear()
                     screen = AppScreen.SUMMARY
@@ -269,12 +348,14 @@ private fun RakdatakApp(
                     snapshot
                 }
                 activeWorkoutRepository.save(snapshot, distanceMeters)
-                wearController.start(
-                    planIndex = planIndex,
-                    elapsedSeconds = snapshot.totalElapsedSeconds,
-                    gpsEnabled = profile.trainingEnvironment != TrainingEnvironment.TREADMILL,
-                )
-                wearController.resume()
+                if (manageWearFromPhone) {
+                    wearController.start(
+                        planIndex = planIndex,
+                        elapsedSeconds = snapshot.totalElapsedSeconds,
+                        gpsEnabled = profile.trainingEnvironment != TrainingEnvironment.TREADMILL,
+                    )
+                    wearController.resume()
+                }
                 screen = AppScreen.WORKOUT
             },
             onOpenHistory = { screen = AppScreen.HISTORY },
@@ -289,20 +370,34 @@ private fun RakdatakApp(
             onFinished = {
                 snapshot = engine.start()
                 activeWorkoutRepository.save(snapshot, distanceMeters)
-                wearController.start(
-                    planIndex = planIndex,
-                    elapsedSeconds = 0,
-                    gpsEnabled = profile.trainingEnvironment != TrainingEnvironment.TREADMILL,
-                )
+                if (manageWearFromPhone) {
+                    wearController.start(
+                        planIndex = planIndex,
+                        elapsedSeconds = 0,
+                        gpsEnabled = profile.trainingEnvironment != TrainingEnvironment.TREADMILL,
+                    )
+                }
                 screen = AppScreen.WORKOUT
             },
         )
 
         AppScreen.WORKOUT -> WorkoutScreen(
             snapshot = snapshot,
-            plannedDurationSeconds = plan.totalDurationSeconds,
+            plannedDurationSeconds = workoutPlan.totalDurationSeconds,
             initialDistanceMeters = distanceMeters,
-            gpsTrackingEnabled = profile.trainingEnvironment != TrainingEnvironment.TREADMILL,
+            gpsTrackingEnabled = !treadmillMode,
+            treadmillMode = treadmillMode,
+            treadmillSpeedKmh = speedForPhase(snapshot.currentPhase.type),
+            onTreadmillSpeedChange = { newSpeed ->
+                val adjusted = newSpeed.coerceIn(1.0, 20.0)
+                if (snapshot.currentPhase.type == WorkoutPhaseType.RUN) {
+                    runSpeedKmh = adjusted
+                    speedPreferences.edit().putFloat("run_kmh", adjusted.toFloat()).apply()
+                } else {
+                    walkSpeedKmh = adjusted
+                    speedPreferences.edit().putFloat("walk_kmh", adjusted.toFloat()).apply()
+                }
+            },
             keepScreenOn = settings.keepScreenOnDuringWorkout,
             onDistanceChanged = { updatedDistance ->
                 if (updatedDistance > distanceMeters) {
@@ -312,18 +407,20 @@ private fun RakdatakApp(
             },
             onPauseResume = {
                 snapshot = if (snapshot.status == WorkoutSessionStatus.PAUSED) {
-                    wearController.resume()
+                    if (manageWearFromPhone) wearController.resume()
                     engine.resume()
                 } else {
-                    wearController.pause()
+                    if (manageWearFromPhone) wearController.pause()
                     engine.pause()
                 }
                 activeWorkoutRepository.save(snapshot, distanceMeters)
             },
             onBackToHome = {
-                if (snapshot.status == WorkoutSessionStatus.RUNNING) {
+                if (snapshot.status == WorkoutSessionStatus.RUNNING ||
+                    snapshot.status == WorkoutSessionStatus.ANNOUNCING
+                ) {
                     snapshot = engine.pause()
-                    wearController.pause()
+                    if (manageWearFromPhone) wearController.pause()
                 }
                 activeWorkoutRepository.save(snapshot, distanceMeters)
                 screen = AppScreen.HOME
@@ -331,19 +428,21 @@ private fun RakdatakApp(
             onFinish = {
                 val stopped = engine.stop()
                 snapshot = stopped
-                wearController.stop()
+                if (manageWearFromPhone) wearController.stop()
                 if (!sessionRecorded) {
                     sessionRecorded = true
                     historyRepository.recordWorkout(
                         elapsedSeconds = stopped.totalElapsedSeconds,
                         completionRatio = stopped.completionRatio,
                         distanceMeters = distanceMeters,
+                        estimatedDistance = treadmillMode,
                     )
                     scope.launch {
                         progressRepository.recordWorkout(
                             elapsedSeconds = stopped.totalElapsedSeconds,
                             completionRatio = stopped.completionRatio,
                             distanceMeters = distanceMeters,
+                            continuousRunSeconds = stopped.longestContinuousRunSeconds,
                         )
                     }
                 }
@@ -356,16 +455,8 @@ private fun RakdatakApp(
             planId = plan.id,
             snapshot = snapshot,
             distanceMeters = distanceMeters,
-            manualDistanceEntryEnabled = profile.trainingEnvironment == TrainingEnvironment.TREADMILL,
-            onManualDistanceSaved = { manualDistanceMeters ->
-                val historyUpdated = historyRepository.fillLatestMissingDistance(manualDistanceMeters)
-                if (historyUpdated) {
-                    distanceMeters = manualDistanceMeters
-                    scope.launch {
-                        progressRepository.addDistanceToLatestWorkout(manualDistanceMeters)
-                    }
-                }
-            },
+            distanceIsEstimated = treadmillMode,
+            longestContinuousRunSeconds = snapshot.longestContinuousRunSeconds,
             onDone = { _, _, decision ->
                 scope.launch {
                     progressRepository.applyTrainingAction(
@@ -375,7 +466,17 @@ private fun RakdatakApp(
                     screen = AppScreen.HOME
                 }
             },
-            onSkip = { screen = AppScreen.HOME },
+            onSkip = {
+                scope.launch {
+                    if (snapshot.status == WorkoutSessionStatus.COMPLETED) {
+                        progressRepository.applyTrainingAction(
+                            action = TrainingAction.ADVANCE,
+                            planCount = plans.size,
+                        )
+                    }
+                    screen = AppScreen.HOME
+                }
+            },
         )
 
         AppScreen.HISTORY -> WorkoutHistoryScreen(
@@ -386,6 +487,14 @@ private fun RakdatakApp(
         AppScreen.SETTINGS -> SettingsScreen(
             settings = settings,
             profileSummary = profileSummary(profile),
+            currentWeek = plan.week,
+            previewWeekSelectionEnabled = context.packageName.endsWith(".preview"),
+            onPreviewWeekChanged = { week ->
+                scope.launch {
+                    progressRepository.selectWeekForPreview(week)
+                    screen = AppScreen.HOME
+                }
+            },
             trainingScheduleSummary = if (trainingSchedule.isConfigured) {
                 "تم ضبط 3 مواعيد أسبوعية. اضغط للتعديل."
             } else {

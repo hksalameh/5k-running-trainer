@@ -13,6 +13,8 @@ data class GoalProgress(
 ) {
     val reachedFiveKilometers: Boolean = bestDistanceMeters >= 5_000.0
     val reachedThirtyMinutes: Boolean = bestContinuousRunSeconds >= 1_800
+    /** Each is a valid independent success. A second milestone is optional. */
+    val reachedAnyGoal: Boolean = reachedFiveKilometers || reachedThirtyMinutes
 
     val focus: GoalFocus = when {
         reachedFiveKilometers && reachedThirtyMinutes -> GoalFocus.COMPLETE
