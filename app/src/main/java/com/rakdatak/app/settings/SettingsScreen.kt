@@ -1,5 +1,7 @@
 package com.rakdatak.app.settings
 
+import android.media.MediaPlayer
+import android.util.Log
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -19,15 +21,23 @@ import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import com.rakdatak.app.wear.rememberWearLiveMetrics
+import com.rakdatak.app.rawVoiceCue
 
 private val Black = Color(0xFF141414)
 private val Gray = Color(0xFF747474)
@@ -97,7 +107,7 @@ fun SettingsScreen(
 
             VoiceChoiceCard(
                 selected = settings.workoutVoice,
-                enabled = settings.soundCuesEnabled,
+                enabled = true,
                 onSelected = onWorkoutVoiceChanged,
             )
 
@@ -224,7 +234,7 @@ fun SettingsScreen(
                         color = Black,
                     )
                     Text(
-                        text = "نسخة تجريبية 0.5.2",
+                        text = "نسخة تجريبية 0.5.3",
                         style = MaterialTheme.typography.bodyMedium,
                         color = Gray,
                     )
@@ -245,6 +255,14 @@ private fun VoiceChoiceCard(
     enabled: Boolean,
     onSelected: (WorkoutVoice) -> Unit,
 ) {
+    val context = LocalContext.current
+    var activePreview by remember { mutableStateOf<MediaPlayer?>(null) }
+    var previewMessage by remember { mutableStateOf<String?>(null) }
+    DisposableEffect(Unit) {
+        onDispose {
+            runCatching { activePreview?.release() }
+        }
+    }
     Card(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(20.dp),
@@ -290,6 +308,51 @@ private fun VoiceChoiceCard(
                 style = MaterialTheme.typography.bodySmall,
                 color = Gray,
             )
+            OutlinedButton(
+                onClick = {
+                    runCatching { activePreview?.release() }
+                    activePreview = null
+                    try {
+                        val rawId = rawVoiceCue(selected, "warmup_300")
+                        val player = rawId?.let { MediaPlayer.create(context, it) }
+                        if (player == null) {
+                            previewMessage = "تعذر فتح الملف الصوتي. أرسل هذه الرسالة لتشخيص المشكلة."
+                            Log.e("RakdatakVoice", "Preview: MediaPlayer.create failed voice=" + selected)
+                        } else {
+                            activePreview = player
+                            player.setOnCompletionListener {
+                                it.release()
+                                if (activePreview === it) activePreview = null
+                                previewMessage = "انتهت العينة الصوتية."
+                            }
+                            player.setOnErrorListener { failed, what, extra ->
+                                Log.e("RakdatakVoice", "Preview failed " + what + "/" + extra)
+                                failed.release()
+                                if (activePreview === failed) activePreview = null
+                                previewMessage = "فشل تشغيل الصوت. رمز الخطأ: " + what
+                                true
+                            }
+                            player.setVolume(1f, 1f)
+                            player.start()
+                            Log.i("RakdatakVoice", "PREVIEW_PLAY voice=" + selected)
+                            previewMessage = "تشغيل العينة الآن. ارفع صوت الوسائط إذا لم تسمعها."
+                        }
+                    } catch (failure: Exception) {
+                        Log.e("RakdatakVoice", "Preview playback exception", failure)
+                        previewMessage = "تعذر تشغيل الصوت: " + (failure.message ?: "خطأ غير معروف")
+                    }
+                },
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Text("استمع لعينة الصوت المختار")
+            }
+            if (previewMessage != null) {
+                Text(
+                    text = previewMessage ?: "",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = Gray,
+                )
+            }
         }
     }
 }

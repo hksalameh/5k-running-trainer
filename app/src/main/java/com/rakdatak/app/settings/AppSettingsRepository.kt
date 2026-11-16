@@ -45,6 +45,9 @@ class AppSettingsRepository(private val context: Context) {
     suspend fun setWorkoutVoice(voice: WorkoutVoice) {
         context.appSettingsDataStore.edit { preferences ->
             preferences[WORKOUT_VOICE] = voice.name
+            // Selecting a voice is an explicit request to hear it.
+            // The previous silent preference must not override that selection.
+            preferences[SOUND_CUES_ENABLED] = true
         }
     }
 

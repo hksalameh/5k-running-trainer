@@ -5,6 +5,7 @@ import android.media.AudioAttributes
 import android.media.AudioFocusRequest
 import android.media.AudioManager
 import android.media.MediaPlayer
+import android.util.Log
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
@@ -26,11 +27,7 @@ import com.rakdatak.core.training.WorkoutSessionStatus
 import com.rakdatak.core.training.WorkoutCueTiming
 import com.rakdatak.core.training.model.WorkoutPhase
 import com.rakdatak.core.training.model.WorkoutPhaseType
-import java.io.File
-import java.net.HttpURLConnection
-import java.net.URL
 import java.util.Locale
-import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicInteger
 
 private data class VoiceClip(
@@ -41,17 +38,16 @@ private data class VoiceClip(
 }
 
 private data class VoicePackSpec(
-    val filename: String,
-    val url: String? = null,
-    val assetPath: String? = null,
+    val resourcePrefix: String,
     val clips: Map<String, VoiceClip>,
 )
 
 /**
  * Arabic workout coach.
  *
- * Primary path: an offline, bundled Arabic (Jordan) neural voice pack.
- * Fallback path: Android TTS if the selected natural pack is not ready.
+ * Primary path: separate prerecorded MP3 resources, one per prompt.
+ * Individual resources avoid unreliable seeking in large WAV sprites.
+ * Fallback: Android TTS when a bundled resource is missing or cannot load.
  */
 class PhoneWorkoutCoach(
     context: Context,
@@ -59,7 +55,6 @@ class PhoneWorkoutCoach(
 ) : TextToSpeech.OnInitListener, AutoCloseable {
     private val appContext = context.applicationContext
     private val voicePack = if (workoutVoice == WorkoutVoice.DESPINA) DESPINA_PACK else CHARON_PACK
-    private val voicePackFile = File(appContext.filesDir, voicePack.filename)
 
     private val audioManager = appContext.getSystemService(AudioManager::class.java)
     private val audioAttributes = AudioAttributes.Builder()
@@ -75,19 +70,13 @@ class PhoneWorkoutCoach(
     private val utteranceCounter = AtomicInteger(0)
     private val tts = TextToSpeech(appContext, this)
     private val mainHandler = Handler(Looper.getMainLooper())
-    private val voiceExecutor = Executors.newSingleThreadExecutor()
-
-    @Volatile
-    private var naturalPlayer: MediaPlayer? = null
+    private var playingPlayer: MediaPlayer? = null
 
     @Volatile
     private var closed = false
 
     private var playbackToken = 0
     private var ready = false
-    @Volatile
-    private var voicePackLoading = true
-    private var pendingNaturalCue: (() -> Unit)? = null
     private var pendingFirstCue: String? = null
     private var pendingFirstCueFinished: (() -> Unit)? = null
     private var activeUtteranceId: String? = null
@@ -120,7 +109,6 @@ class PhoneWorkoutCoach(
                 dispatchUtteranceFinished(utteranceId)
             }
         })
-        prepareNaturalVoicePack()
     }
 
     override fun onInit(status: Int) {
@@ -294,12 +282,6 @@ class PhoneWorkoutCoach(
         fallbackText: String,
         onFinished: (() -> Unit)? = null,
     ) {
-        // The APK contains the recorded cue. Do not play Android's robotic TTS
-        // while the offline clip is still loading from the APK assets.
-        if (clipKey != null && voicePack.assetPath != null && voicePackLoading) {
-            pendingNaturalCue = { speakCue(clipKey, fallbackText, onFinished) }
-            return
-        }
         if (clipKey != null && playNaturalClip(clipKey, 0L, onFinished)) return
         speakWithTts(fallbackText, onFinished)
     }
@@ -309,118 +291,65 @@ class PhoneWorkoutCoach(
         delayMs: Long,
         onFinished: (() -> Unit)? = null,
     ): Boolean {
-        val clip = voicePack.clips[key] ?: return false
-        val player = naturalPlayer ?: return false
-        if (closed) return false
+        if (closed || voicePack.clips[key] == null) return false
+        val id = rawVoiceCue(workoutVoice, key)
+        if (id == null) {
+            Log.e("RakdatakVoice", "Missing recorded voice resource: " + voicePack.resourcePrefix + key)
+            return false
+        }
+        // One MP3 per cue avoids inaccurate WAV sprite seeking on Android.
+        val player = try {
+            MediaPlayer.create(appContext, id)
+        } catch (failure: Exception) {
+            Log.e("RakdatakVoice", "Cannot prepare " + key, failure)
+            null
+        } ?: run {
+            Log.e("RakdatakVoice", "MediaPlayer.create returned null for " + key)
+            return false
+        }
 
         playbackToken += 1
         val token = playbackToken
+        playingPlayer?.release()
+        playingPlayer = player
+        player.setOnCompletionListener { completed ->
+            if (playingPlayer === completed) playingPlayer = null
+            completed.release()
+            abandonAudioFocus()
+            if (!closed && playbackToken == token) onFinished?.invoke()
+        }
+        player.setOnErrorListener { failed, what, extra ->
+            Log.e("RakdatakVoice", "Playback error for " + key + " (" + what + "/" + extra + ")")
+            if (playingPlayer === failed) playingPlayer = null
+            runCatching { failed.release() }
+            abandonAudioFocus()
+            if (!closed && playbackToken == token) onFinished?.invoke()
+            true
+        }
 
         mainHandler.postDelayed(
             {
-                if (closed || playbackToken != token) return@postDelayed
+                if (closed || playbackToken != token) {
+                    if (playingPlayer === player) playingPlayer = null
+                    runCatching { player.release() }
+                    return@postDelayed
+                }
                 try {
                     audioManager.requestAudioFocus(focusRequest)
-
-                    if (player.isPlaying) player.pause()
-
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                        player.seekTo(clip.startMs.toLong(), MediaPlayer.SEEK_CLOSEST)
-                    } else {
-                        @Suppress("DEPRECATION")
-                        player.seekTo(clip.startMs)
-                    }
+                    player.setVolume(1f, 1f)
                     player.start()
-
-                    mainHandler.postDelayed(
-                        {
-                            if (!closed && playbackToken == token) {
-                                runCatching {
-                                    if (player.isPlaying) player.pause()
-                                }
-                                abandonAudioFocus()
-                                onFinished?.invoke()
-                            }
-                        },
-                        clip.durationMs + 80L,
-                    )
-                } catch (_: Throwable) {
-                    // Future cues will fall back to Android TTS if local playback becomes unavailable.
+                    Log.i("RakdatakVoice", "PLAY_START key=" + key + " voice=" + voicePack.resourcePrefix)
+                } catch (failure: Exception) {
+                    Log.e("RakdatakVoice", "Playback start failed for " + key, failure)
+                    if (playingPlayer === player) playingPlayer = null
+                    runCatching { player.release() }
+                    abandonAudioFocus()
                     onFinished?.invoke()
                 }
             },
             delayMs,
         )
         return true
-    }
-
-    private fun prepareNaturalVoicePack() {
-        voiceExecutor.execute {
-            try {
-                if (!voicePackFile.exists() || voicePackFile.length() < 32_000L) {
-                    if (voicePack.assetPath != null) {
-                        appContext.assets.open(voicePack.assetPath).use { source ->
-                            voicePackFile.outputStream().use { target -> source.copyTo(target) }
-                        }
-                    } else {
-                        downloadVoicePack()
-                    }
-                }
-                if (closed || !voicePackFile.exists()) return@execute
-
-                val preparedPlayer = MediaPlayer().apply {
-                    setAudioAttributes(audioAttributes)
-                    setDataSource(voicePackFile.absolutePath)
-                    prepare()
-                }
-
-                if (closed) {
-                    preparedPlayer.release()
-                } else {
-                    naturalPlayer = preparedPlayer
-                }
-            } catch (_: Throwable) {
-                // Only a damaged/unreadable voice pack falls back to Android TTS.
-            } finally {
-                voicePackLoading = false
-                mainHandler.post {
-                    if (!closed) {
-                        val pending = pendingNaturalCue
-                        pendingNaturalCue = null
-                        pending?.invoke()
-                    }
-                }
-            }
-        }
-    }
-
-    private fun downloadVoicePack() {
-        val downloadUrl = voicePack.url ?: return
-        val temporaryFile = File(appContext.filesDir, "${voicePack.filename}.tmp")
-        runCatching { temporaryFile.delete() }
-
-        val connection = (URL(downloadUrl).openConnection() as HttpURLConnection).apply {
-            connectTimeout = 10_000
-            readTimeout = 20_000
-            instanceFollowRedirects = true
-        }
-
-        try {
-            connection.connect()
-            if (connection.responseCode !in 200..299) return
-            connection.inputStream.use { input ->
-                temporaryFile.outputStream().use { output ->
-                    input.copyTo(output)
-                }
-            }
-            if (temporaryFile.length() >= 32_000L) {
-                if (voicePackFile.exists()) voicePackFile.delete()
-                temporaryFile.renameTo(voicePackFile)
-            }
-        } finally {
-            connection.disconnect()
-            if (temporaryFile.exists()) temporaryFile.delete()
-        }
     }
 
     private fun configureArabicVoice(): Boolean {
@@ -565,14 +494,14 @@ class PhoneWorkoutCoach(
 
     private fun cancelCuePlayback() {
         announcingPhaseIndex = -1
-        pendingNaturalCue = null
         playbackToken += 1
         pendingFirstCue = null
         pendingFirstCueFinished = null
         activeUtteranceId = null
         activeUtteranceFinished = null
         tts.stop()
-        runCatching { naturalPlayer?.pause() }
+        runCatching { playingPlayer?.release() }
+        playingPlayer = null
         abandonAudioFocus()
     }
 
@@ -615,9 +544,8 @@ class PhoneWorkoutCoach(
         playbackToken += 1
         mainHandler.removeCallbacksAndMessages(null)
         abandonAudioFocus()
-        naturalPlayer?.release()
-        naturalPlayer = null
-        voiceExecutor.shutdownNow()
+        playingPlayer?.release()
+        playingPlayer = null
         tts.stop()
         tts.shutdown()
     }
@@ -645,8 +573,7 @@ class PhoneWorkoutCoach(
         const val CLIP_FINISHED = "finished"
 
         val CHARON_PACK = VoicePackSpec(
-            filename = "rakdatak_ar_charon_v4.wav",
-            assetPath = "voice_packs/rakdatak_ar_charon_v4.wav",
+            resourcePrefix = "rk_charon_",
             clips = mapOf(
                 "warmup_300" to VoiceClip(0, 7077),
                 "warmup_speed_60" to VoiceClip(7277, 12093),
@@ -672,8 +599,7 @@ class PhoneWorkoutCoach(
         )
 
         val DESPINA_PACK = VoicePackSpec(
-            filename = "rakdatak_ar_despina_v4.wav",
-            assetPath = "voice_packs/rakdatak_ar_despina_v4.wav",
+            resourcePrefix = "rk_despina_",
             clips = mapOf(
                 "warmup_300" to VoiceClip(0, 7004),
                 "warmup_speed_60" to VoiceClip(7204, 12139),
