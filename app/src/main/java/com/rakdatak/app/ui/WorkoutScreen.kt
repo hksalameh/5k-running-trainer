@@ -57,6 +57,8 @@ fun WorkoutScreen(
     gpsTrackingEnabled: Boolean,
     treadmillMode: Boolean,
     treadmillSpeedKmh: Double,
+    warmupSpeedGuidance: String?,
+    runDistanceMeters: Double,
     onTreadmillSpeedChange: (Double) -> Unit,
     keepScreenOn: Boolean,
     onDistanceChanged: (Double) -> Unit,
@@ -203,6 +205,13 @@ fun WorkoutScreen(
                 )
             }
 
+            Text(
+                text = "مسافة الركض دون المشي: %.2f / 5.00 كم".format(runDistanceMeters / 1_000.0),
+                color = Orange,
+                style = MaterialTheme.typography.bodyMedium,
+                textAlign = TextAlign.Center,
+            )
+
             Spacer(modifier = Modifier.height(12.dp))
             Surface(
                 modifier = Modifier.fillMaxWidth(),
@@ -234,22 +243,38 @@ fun WorkoutScreen(
                         fontWeight = FontWeight.Bold,
                     )
                     if (treadmillMode) {
+                        if (warmupSpeedGuidance != null) {
+                            Text(
+                                text = warmupSpeedGuidance,
+                                color = Orange,
+                                style = MaterialTheme.typography.bodyMedium,
+                                textAlign = TextAlign.Center,
+                            )
+                        }
                         Row(
-                            horizontalArrangement = Arrangement.spacedBy(16.dp),
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(12.dp),
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
                             OutlinedButton(
                                 onClick = { onTreadmillSpeedChange(treadmillSpeedKmh - 0.5) },
+                                modifier = Modifier.weight(1f).height(50.dp),
                             ) {
-                                Text("− 0.5", color = Color.White)
+                                Text("− 0.5", color = Color.White, fontSize = 20.sp)
                             }
-                            Text("عدّلها لتطابق شاشة التردمل", color = LightText)
                             OutlinedButton(
                                 onClick = { onTreadmillSpeedChange(treadmillSpeedKmh + 0.5) },
+                                modifier = Modifier.weight(1f).height(50.dp),
                             ) {
-                                Text("+ 0.5", color = Color.White)
+                                Text("+ 0.5", color = Color.White, fontSize = 20.sp)
                             }
                         }
+                        Text(
+                            "الناقص يقلّل والزايد يزيد • عدّل السرعة لتطابق جهاز المشي",
+                            color = LightText,
+                            style = MaterialTheme.typography.bodySmall,
+                            textAlign = TextAlign.Center,
+                        )
                     }
                 }
             }

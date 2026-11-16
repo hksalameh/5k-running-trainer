@@ -27,6 +27,7 @@ data class WorkoutSessionSnapshot(
 
 class WorkoutSessionEngine(
     private val plan: WorkoutPlan,
+    private val continuousPhaseTransitions: Boolean = false,
 ) {
     private var status = WorkoutSessionStatus.READY
     private var phaseIndex = 0
@@ -38,7 +39,8 @@ class WorkoutSessionEngine(
 
     fun start(): WorkoutSessionSnapshot {
         if (status == WorkoutSessionStatus.READY) {
-            status = WorkoutSessionStatus.ANNOUNCING
+            status = if (continuousPhaseTransitions) WorkoutSessionStatus.RUNNING
+                else WorkoutSessionStatus.ANNOUNCING
         }
         return snapshot()
     }
@@ -84,7 +86,7 @@ class WorkoutSessionEngine(
                 if (secondsToLocate >= 0 && secondsToLocate < phase.durationSeconds) {
                     phaseIndex = index
                     phaseElapsedSeconds = secondsToLocate
-                    status = if (secondsToLocate == 0) {
+                    status = if (secondsToLocate == 0 && !continuousPhaseTransitions) {
                         WorkoutSessionStatus.ANNOUNCING
                     } else {
                         WorkoutSessionStatus.RUNNING
@@ -211,6 +213,7 @@ class WorkoutSessionEngine(
         phaseIndex += 1
         phaseElapsedSeconds = 0
         currentContinuousRunSeconds = 0
-        status = WorkoutSessionStatus.ANNOUNCING
+        status = if (continuousPhaseTransitions) WorkoutSessionStatus.RUNNING
+            else WorkoutSessionStatus.ANNOUNCING
     }
 }

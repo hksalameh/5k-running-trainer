@@ -164,6 +164,16 @@ private fun HistoryCard(entry: WorkoutHistoryEntry) {
                 color = Gray,
                 style = MaterialTheme.typography.bodyMedium,
             )
+            Text(
+                text = if (entry.runDistanceMeters > 0.0) {
+                    "مسافة الركض فقط: ${formatDistance(entry.runDistanceMeters)}" +
+                        if (entry.estimatedDistance) " (تقديرية)" else ""
+                } else {
+                    "مسافة الركض المنفصلة غير متاحة لهذا التمرين"
+                },
+                color = Gray,
+                style = MaterialTheme.typography.bodySmall,
+            )
             val averageSpeed = WorkoutDistanceEstimator.averageSpeedKmh(
                 entry.distanceMeters,
                 entry.elapsedSeconds,

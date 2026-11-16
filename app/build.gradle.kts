@@ -11,17 +11,19 @@ android {
         applicationId = "com.rakdatak.app"
         minSdk = 28
         targetSdk = 37
-        versionCode = 12
-        versionName = "0.4.9"
+        versionCode = 16
+        versionName = "0.5.3"
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         manifestPlaceholders["appName"] = "ركضتك"
     }
 
     buildTypes {
         getByName("debug") {
-            // Installs alongside the earlier debug APK, preserving its saved workouts and week.
-            applicationIdSuffix = ".preview"
+            // CI debug signing keys differ by run; separate package prevents an
+            // update-signature conflict with the previously installed 0.5.1 test APK.
+            applicationIdSuffix = ".preview053"
             versionNameSuffix = "-TEST"
-            manifestPlaceholders["appName"] = "ركضتك - تجربة"
+            manifestPlaceholders["appName"] = "ركضتك 0.5.3 - تجربة"
         }
     }
 
@@ -51,4 +53,6 @@ dependencies {
     implementation("androidx.health.connect:connect-client:1.1.0")
     implementation("androidx.work:work-runtime:2.11.2")
     implementation("com.google.android.gms:play-services-wearable:18.2.0")
+    androidTestImplementation("androidx.test:runner:1.6.2")
+    androidTestImplementation("androidx.test.ext:junit:1.2.1")
 }

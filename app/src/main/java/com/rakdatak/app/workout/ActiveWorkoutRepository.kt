@@ -12,6 +12,7 @@ data class PersistedWorkoutState(
     val lastUpdatedEpochMillis: Long,
     val planId: String? = null,
     val longestContinuousRunSeconds: Int = 0,
+    val runDistanceMeters: Double = 0.0,
 )
 
 /**
@@ -39,12 +40,15 @@ class ActiveWorkoutRepository(context: Context) {
             planId = prefs.getString(KEY_PLAN_ID, null),
             longestContinuousRunSeconds = prefs.getInt(KEY_LONGEST_RUN_SECONDS, 0)
                 .coerceAtLeast(0),
+            runDistanceMeters = prefs.getLong(KEY_RUN_DISTANCE_CENTIMETERS, 0L)
+                .coerceAtLeast(0L) / 100.0,
         )
     }
 
     fun save(
         snapshot: WorkoutSessionSnapshot,
         distanceMeters: Double,
+        runDistanceMeters: Double = 0.0,
     ) {
         if (snapshot.status !in ACTIVE_STATUSES) {
             clear()
@@ -60,6 +64,10 @@ class ActiveWorkoutRepository(context: Context) {
             .putLong(
                 KEY_DISTANCE_CENTIMETERS,
                 (distanceMeters.coerceAtLeast(0.0) * 100.0).roundToLong(),
+            )
+            .putLong(
+                KEY_RUN_DISTANCE_CENTIMETERS,
+                (runDistanceMeters.coerceIn(0.0, distanceMeters.coerceAtLeast(0.0)) * 100.0).roundToLong(),
             )
             .putLong(KEY_LAST_UPDATED_EPOCH_MILLIS, System.currentTimeMillis())
             .apply()
@@ -77,6 +85,7 @@ class ActiveWorkoutRepository(context: Context) {
         private const val KEY_PLAN_ID = "plan_id"
         private const val KEY_PAUSED = "paused"
         private const val KEY_DISTANCE_CENTIMETERS = "distance_centimeters"
+        private const val KEY_RUN_DISTANCE_CENTIMETERS = "run_distance_centimeters"
         private const val KEY_LAST_UPDATED_EPOCH_MILLIS = "last_updated_epoch_millis"
 
         private val ACTIVE_STATUSES = setOf(

@@ -33,7 +33,7 @@ jobs:
           gradle-version: '9.5.0'
 
       - name: Build and test
-        run: gradle :core:training:testDebugUnitTest :app:assembleDebug :wear:assembleDebug --stacktrace
+        run: gradle :core:training:testDebugUnitTest :app:assembleDebug :app:assembleDebugAndroidTest :wear:assembleDebug --stacktrace
 
       - name: Enable KVM
         run: |
@@ -50,13 +50,16 @@ jobs:
           disable-animations: true
           script: |
             adb install -r app/build/outputs/apk/debug/app-debug.apk
+            adb install -r app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk
+            adb shell am instrument -w -r com.rakdatak.app.preview053.test/androidx.test.runner.AndroidJUnitRunner | tee voice-test.log
+            grep -q "OK (1 test)" voice-test.log
             adb logcat -c
-            adb shell am start -W -n com.rakdatak.app.preview/com.rakdatak.app.MainActivity
+            adb shell am start -W -n com.rakdatak.app.preview053/com.rakdatak.app.MainActivity
             sleep 4
             adb shell screencap -p /sdcard/rakdatak-ui.png
             adb pull /sdcard/rakdatak-ui.png rakdatak-ui.png
-            adb shell pidof com.rakdatak.app.preview
-            adb logcat -d -t 300 | grep -E "FATAL EXCEPTION|Process: com.rakdatak.app.preview" && exit 1 || true
+            adb shell pidof com.rakdatak.app.preview053
+            adb logcat -d -t 300 | grep -E "FATAL EXCEPTION|Process: com.rakdatak.app.preview053" && exit 1 || true
 
       - name: Upload phone UI screenshot for design review
         if: always()
@@ -85,10 +88,10 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          TAG="phone-v0.4.9"
-          APK="app/build/outputs/apk/debug/app-debug.apk#rakdatak-phone-0.4.9.apk"
+          TAG="phone-v0.5.3"
+          APK="app/build/outputs/apk/debug/app-debug.apk#rakdatak-phone-0.5.3.apk"
           if gh release view "$TAG" >/dev/null 2>&1; then
             gh release upload "$TAG" "$APK" --clobber
           else
-            gh release create "$TAG" "$APK" --target "$GITHUB_SHA" --title "ركضتك - هاتف 0.4.9" --notes "نسخة تجريبية؛ 9 أسابيع، الإحماء والتهدئة 5 دقائق، ووقت المرحلة يبدأ بعد انتهاء التوجيه الصوتي. يُحتفظ بالتقدم المثبت عند التحديث." --prerelease
+            gh release create "$TAG" "$APK" --target "$GITHUB_SHA" --title "ركضتك - هاتف 0.5.3" --notes "إصلاح التوجيهات الصوتية: 40 ملف MP3 منفصل، مشغل أكثر توافقًا مع Android، زر معاينة الصوت في الإعدادات، واختيار الصوت يعيد تفعيل التوجيهات. رجل Charon وامرأة Despina. يبقى العداد مستمرًا دون زامور." --prerelease
           fi

@@ -11,13 +11,13 @@ import kotlinx.coroutines.flow.map
 private val Context.appSettingsDataStore by preferencesDataStore(name = "app_settings")
 
 enum class WorkoutVoice {
-    MALE,
-    FEMALE,
+    CHARON,
+    DESPINA,
 }
 
 data class AppSettings(
     val soundCuesEnabled: Boolean = true,
-    val workoutVoice: WorkoutVoice = WorkoutVoice.MALE,
+    val workoutVoice: WorkoutVoice = WorkoutVoice.CHARON,
     val vibrationEnabled: Boolean = true,
     val keepScreenOnDuringWorkout: Boolean = true,
 )
@@ -26,9 +26,11 @@ class AppSettingsRepository(private val context: Context) {
     val settings: Flow<AppSettings> = context.appSettingsDataStore.data.map { preferences ->
         AppSettings(
             soundCuesEnabled = preferences[SOUND_CUES_ENABLED] ?: true,
-            workoutVoice = preferences[WORKOUT_VOICE]
-                ?.let { saved -> runCatching { WorkoutVoice.valueOf(saved) }.getOrNull() }
-                ?: WorkoutVoice.MALE,
+            workoutVoice = when (preferences[WORKOUT_VOICE]) {
+                "MALE", "CHARON" -> WorkoutVoice.CHARON
+                "FEMALE", "ALI", "DESPINA" -> WorkoutVoice.DESPINA
+                else -> WorkoutVoice.CHARON
+            },
             vibrationEnabled = preferences[VIBRATION_ENABLED] ?: true,
             keepScreenOnDuringWorkout = preferences[KEEP_SCREEN_ON] ?: true,
         )
@@ -43,6 +45,9 @@ class AppSettingsRepository(private val context: Context) {
     suspend fun setWorkoutVoice(voice: WorkoutVoice) {
         context.appSettingsDataStore.edit { preferences ->
             preferences[WORKOUT_VOICE] = voice.name
+            // Selecting a voice is an explicit request to hear it.
+            // The previous silent preference must not override that selection.
+            preferences[SOUND_CUES_ENABLED] = true
         }
     }
 

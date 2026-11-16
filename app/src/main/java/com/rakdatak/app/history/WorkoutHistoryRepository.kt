@@ -13,6 +13,7 @@ data class WorkoutHistoryEntry(
     val distanceMeters: Double,
     val completionRatio: Double,
     val estimatedDistance: Boolean = false,
+    val runDistanceMeters: Double = 0.0,
 ) {
     val completed: Boolean
         get() = completionRatio >= 0.999
@@ -40,6 +41,7 @@ class WorkoutHistoryRepository(context: Context) {
                             completionRatio = item.optDouble("completionRatio")
                                 .coerceIn(0.0, 1.0),
                             estimatedDistance = item.optBoolean("estimatedDistance", false),
+                            runDistanceMeters = item.optDouble("runDistanceMeters", 0.0).coerceAtLeast(0.0),
                         )
                     )
                 }
@@ -54,6 +56,7 @@ class WorkoutHistoryRepository(context: Context) {
         completionRatio: Double,
         timestampMillis: Long = System.currentTimeMillis(),
         estimatedDistance: Boolean = false,
+        runDistanceMeters: Double = 0.0,
     ) {
         val updated = buildList {
             add(
@@ -64,6 +67,7 @@ class WorkoutHistoryRepository(context: Context) {
                     distanceMeters = distanceMeters.coerceAtLeast(0.0),
                     completionRatio = completionRatio.coerceIn(0.0, 1.0),
                     estimatedDistance = estimatedDistance,
+                    runDistanceMeters = runDistanceMeters.coerceIn(0.0, distanceMeters.coerceAtLeast(0.0)),
                 )
             )
             addAll(load())
@@ -102,6 +106,7 @@ class WorkoutHistoryRepository(context: Context) {
                     put("distanceMeters", entry.distanceMeters)
                     put("completionRatio", entry.completionRatio)
                     put("estimatedDistance", entry.estimatedDistance)
+                    put("runDistanceMeters", entry.runDistanceMeters)
                 }
             )
         }

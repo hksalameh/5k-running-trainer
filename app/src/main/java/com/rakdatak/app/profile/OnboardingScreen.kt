@@ -226,7 +226,7 @@ private fun WelcomeScreen(onStart: () -> Unit) {
                     fontWeight = FontWeight.Black,
                 )
                 Text(
-                    text = "اختر هدفك: 30 دقيقة ركض متواصل، أو 5 كم مشيًا أو ركضًا، على التردمل أو خارج البيت.",
+                    text = "اختر هدفك: ركض 5 كم، أو 30 دقيقة ركض متواصل، على التردمل أو خارج البيت. المشي للإحماء والاستراحة فقط.",
                     color = Color.White.copy(alpha = 0.72f),
                     style = MaterialTheme.typography.bodyLarge,
                     lineHeight = 25.sp,

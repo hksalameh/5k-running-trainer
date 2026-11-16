@@ -208,7 +208,7 @@ private fun GoalCard(planProgress: Float, progress: TrainingProgress) {
             ) {
                 Text("هدفك", color = Color(0xFFBDBDBD), style = MaterialTheme.typography.labelLarge)
                 Text("30 دقيقة ركض", color = Color.White, style = MaterialTheme.typography.titleLarge)
-                Text("أو 5 كم مشي/ركض", color = Orange, style = MaterialTheme.typography.titleMedium)
+                Text("أو ركض 5 كم", color = Orange, style = MaterialTheme.typography.titleMedium)
                 Text(
                     "كل هدف مستقل • تقدم تدريجي حسب قدرتك",
                     color = Color(0xFFBDBDBD),
@@ -228,13 +228,13 @@ private fun GoalCard(planProgress: Float, progress: TrainingProgress) {
                     trackColor = Color(0xFF333333),
                 )
                 Text(
-                    "أطول مسافة: ${"%.2f".format(progress.longestDistanceMeters / 1000.0)} من 5 كم",
+                    "أطول مسافة ركض: ${"%.2f".format(progress.longestRunDistanceMeters / 1000.0)} من 5 كم",
                     color = Color.White,
                     style = MaterialTheme.typography.bodySmall,
                 )
                 LinearProgressIndicator(
                     progress = {
-                        (progress.longestDistanceMeters / 5000f).coerceIn(0f, 1f)
+                        (progress.longestRunDistanceMeters / 5000f).coerceIn(0f, 1f)
                     },
                     modifier = Modifier.fillMaxWidth().height(6.dp),
                     color = Orange,
