@@ -85,10 +85,10 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          TAG="phone-v0.5.0"
-          APK="app/build/outputs/apk/debug/app-debug.apk#rakdatak-phone-0.5.0.apk"
+          TAG="phone-v0.5.1"
+          APK="app/build/outputs/apk/debug/app-debug.apk#rakdatak-phone-0.5.1.apk"
           if gh release view "$TAG" >/dev/null 2>&1; then
             gh release upload "$TAG" "$APK" --clobber
           else
-            gh release create "$TAG" "$APK" --target "$GITHUB_SHA" --title "ركضتك - هاتف 0.5.0" --notes "معاينة: الهدف ركض 5 كم أو ركض 30 دقيقة، إحماء متدرج من 2 إلى 3.5 كم/س، ومقاطع صوت أردنية تُشغَّل دون إنترنت. الحفظ تلقائي ولا تُحتسب مسافة المشي ضمن هدف الركض. يُرجى تجربة الأصوات قبل الاعتماد النهائي." --prerelease
+            gh release create "$TAG" "$APK" --target "$GITHUB_SHA" --title "ركضتك - هاتف 0.5.1" --notes "معاينة بصوتي Charon (Auditext) وAli (ElevenLabs) اللذين اختارهما المستخدم، 22 توجيهاً صوتياً لكل صوت دون إنترنت. الهدف ركض 5 كم أو ركض 30 دقيقة، والمشي للإحماء فقط. هذه النسخة للاختبار غير التجاري؛ اختيار Ali خاضع لترخيص ElevenLabs المجاني ويتطلب نسب الصوت إلى المصدر." --prerelease
           fi

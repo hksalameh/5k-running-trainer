@@ -224,7 +224,7 @@ fun SettingsScreen(
                         color = Black,
                     )
                     Text(
-                        text = "نسخة تجريبية 0.5.0",
+                        text = "نسخة تجريبية 0.5.1",
                         style = MaterialTheme.typography.bodyMedium,
                         color = Gray,
                     )
@@ -262,7 +262,7 @@ private fun VoiceChoiceCard(
                 color = Black,
             )
             Text(
-                text = "اختر الصوت الطبيعي الذي تسمعه أثناء مراحل التدريب.",
+                text = "اختر أحد الصوتين اللذين اعتمدتهما سابقاً لإعلانات علّموهم. يعملان دون إنترنت أثناء التدريب.",
                 style = MaterialTheme.typography.bodySmall,
                 color = Gray,
             )
@@ -271,20 +271,25 @@ private fun VoiceChoiceCard(
                 horizontalArrangement = Arrangement.spacedBy(10.dp),
             ) {
                 FilterChip(
-                    selected = selected == WorkoutVoice.MALE,
-                    onClick = { onSelected(WorkoutVoice.MALE) },
+                    selected = selected == WorkoutVoice.CHARON,
+                    onClick = { onSelected(WorkoutVoice.CHARON) },
                     enabled = enabled,
-                    label = { Text("ذكر") },
+                    label = { Text("Charon") },
                     modifier = Modifier.weight(1f),
                 )
                 FilterChip(
-                    selected = selected == WorkoutVoice.FEMALE,
-                    onClick = { onSelected(WorkoutVoice.FEMALE) },
+                    selected = selected == WorkoutVoice.ALI,
+                    onClick = { onSelected(WorkoutVoice.ALI) },
                     enabled = enabled,
-                    label = { Text("أنثى") },
+                    label = { Text("Ali") },
                     modifier = Modifier.weight(1f),
                 )
             }
+            Text(
+                text = "Charon من Auditext • Ali من ElevenLabs. استخدام Ali هنا تجريبي شخصي وغير تجاري (Audio generated with ElevenLabs).",
+                style = MaterialTheme.typography.bodySmall,
+                color = Gray,
+            )
         }
     }
 }

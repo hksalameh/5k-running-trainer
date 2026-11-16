@@ -58,7 +58,7 @@ class PhoneWorkoutCoach(
     private val workoutVoice: WorkoutVoice,
 ) : TextToSpeech.OnInitListener, AutoCloseable {
     private val appContext = context.applicationContext
-    private val voicePack = if (workoutVoice == WorkoutVoice.FEMALE) FEMALE_PACK else MALE_PACK
+    private val voicePack = if (workoutVoice == WorkoutVoice.ALI) ALI_PACK else CHARON_PACK
     private val voicePackFile = File(appContext.filesDir, voicePack.filename)
 
     private val audioManager = appContext.getSystemService(AudioManager::class.java)
@@ -86,6 +86,9 @@ class PhoneWorkoutCoach(
 
     private var playbackToken = 0
     private var ready = false
+    @Volatile
+    private var voicePackLoading = true
+    private var pendingNaturalCue: (() -> Unit)? = null
     private var pendingFirstCue: String? = null
     private var pendingFirstCueFinished: (() -> Unit)? = null
     private var activeUtteranceId: String? = null
@@ -342,6 +345,12 @@ class PhoneWorkoutCoach(
         fallbackText: String,
         onFinished: (() -> Unit)? = null,
     ) {
+        // The APK contains the recorded cue. Do not play Android's robotic TTS
+        // while the offline clip is still loading from the APK assets.
+        if (clipKey != null && voicePack.assetPath != null && voicePackLoading) {
+            pendingNaturalCue = { speakCue(clipKey, fallbackText, onFinished) }
+            return
+        }
         if (clipKey != null && playNaturalClip(clipKey, 0L, onFinished)) return
         speakWithTts(fallbackText, onFinished)
     }
@@ -422,7 +431,16 @@ class PhoneWorkoutCoach(
                     naturalPlayer = preparedPlayer
                 }
             } catch (_: Throwable) {
-                // Network failure is harmless: Android TTS remains the fallback.
+                // Only a damaged/unreadable voice pack falls back to Android TTS.
+            } finally {
+                voicePackLoading = false
+                mainHandler.post {
+                    if (!closed) {
+                        val pending = pendingNaturalCue
+                        pendingNaturalCue = null
+                        pending?.invoke()
+                    }
+                }
             }
         }
     }
@@ -465,7 +483,7 @@ class PhoneWorkoutCoach(
         if (bestVoice != null && tts.setVoice(bestVoice) == TextToSpeech.SUCCESS) {
             tts.language = bestVoice.locale
             tts.setSpeechRate(0.90f)
-            tts.setPitch(if (workoutVoice == WorkoutVoice.FEMALE) 1.06f else 0.98f)
+            tts.setPitch(0.98f)
             return true
         }
 
@@ -482,7 +500,7 @@ class PhoneWorkoutCoach(
                 result != TextToSpeech.LANG_NOT_SUPPORTED
             ) {
                 tts.setSpeechRate(0.90f)
-                tts.setPitch(if (workoutVoice == WorkoutVoice.FEMALE) 1.06f else 0.98f)
+                tts.setPitch(0.98f)
                 return true
             }
         }
@@ -607,6 +625,7 @@ class PhoneWorkoutCoach(
     private fun cancelCuePlayback() {
         if (announcingPhaseIndex < 0) return
         announcingPhaseIndex = -1
+        pendingNaturalCue = null
         playbackToken += 1
         pendingFirstCue = null
         pendingFirstCueFinished = null
@@ -692,61 +711,61 @@ class PhoneWorkoutCoach(
         const val CLIP_FINISH_TEN_SECONDS = "finish_10"
         const val CLIP_FINISHED = "finished"
 
-        val MALE_PACK = VoicePackSpec(
-            filename = "rakdatak_ar_male_v2.wav",
-            assetPath = "voice_packs/rakdatak_ar_male_v2.wav",
+        val CHARON_PACK = VoicePackSpec(
+            filename = "rakdatak_ar_charon_v3.wav",
+            assetPath = "voice_packs/rakdatak_ar_charon_v3.wav",
             clips = mapOf(
-                "warmup_300" to VoiceClip(0, 11280),
-                "warmup_speed_60" to VoiceClip(11480, 20024),
-                "transition" to VoiceClip(20224, 24496),
-                "one_minute" to VoiceClip(24696, 28512),
-                "run_60" to VoiceClip(28712, 33536),
-                "run_90" to VoiceClip(33736, 39064),
-                "run_180" to VoiceClip(39264, 44352),
-                "run_300" to VoiceClip(44552, 49568),
-                "run_480" to VoiceClip(49768, 54928),
-                "run_600" to VoiceClip(55128, 60120),
-                "run_1200" to VoiceClip(60320, 65480),
-                "run_1500" to VoiceClip(65680, 71200),
-                "run_1680" to VoiceClip(71400, 77088),
-                "run_1800" to VoiceClip(77288, 83336),
-                "walk_90" to VoiceClip(83536, 88912),
-                "walk_120" to VoiceClip(89112, 94152),
-                "walk_150" to VoiceClip(94352, 99848),
-                "walk_180" to VoiceClip(100048, 105184),
-                "walk_300" to VoiceClip(105384, 110448),
-                "cooldown_300" to VoiceClip(110648, 118400),
-                "finish_10" to VoiceClip(118600, 123040),
-                "finished" to VoiceClip(123240, 128256),
+                "warmup_300" to VoiceClip(0, 9128),
+                "warmup_speed_60" to VoiceClip(9328, 15126),
+                "transition" to VoiceClip(15326, 18758),
+                "one_minute" to VoiceClip(18958, 21275),
+                "run_60" to VoiceClip(21475, 24381),
+                "run_90" to VoiceClip(24581, 28198),
+                "run_180" to VoiceClip(28398, 32029),
+                "run_300" to VoiceClip(32229, 35918),
+                "run_480" to VoiceClip(36118, 39596),
+                "run_600" to VoiceClip(39796, 42861),
+                "run_1200" to VoiceClip(43061, 46397),
+                "run_1500" to VoiceClip(46597, 50378),
+                "run_1680" to VoiceClip(50578, 54218),
+                "run_1800" to VoiceClip(54418, 58970),
+                "walk_90" to VoiceClip(59170, 62786),
+                "walk_120" to VoiceClip(62986, 66450),
+                "walk_150" to VoiceClip(66650, 70139),
+                "walk_180" to VoiceClip(70339, 73969),
+                "walk_300" to VoiceClip(74169, 77521),
+                "cooldown_300" to VoiceClip(77721, 83375),
+                "finish_10" to VoiceClip(83575, 86494),
+                "finished" to VoiceClip(86694, 90601),
             ),
         )
 
-        val FEMALE_PACK = VoicePackSpec(
-            filename = "rakdatak_ar_female_v2.wav",
-            assetPath = "voice_packs/rakdatak_ar_female_v2.wav",
+        val ALI_PACK = VoicePackSpec(
+            filename = "rakdatak_ar_ali_v3.wav",
+            assetPath = "voice_packs/rakdatak_ar_ali_v3.wav",
             clips = mapOf(
-                "warmup_300" to VoiceClip(0, 13080),
-                "warmup_speed_60" to VoiceClip(13280, 23168),
-                "transition" to VoiceClip(23368, 28384),
-                "one_minute" to VoiceClip(28584, 32976),
-                "run_60" to VoiceClip(33176, 38696),
-                "run_90" to VoiceClip(38896, 45064),
-                "run_180" to VoiceClip(45264, 51096),
-                "run_300" to VoiceClip(51296, 57128),
-                "run_480" to VoiceClip(57328, 63208),
-                "run_600" to VoiceClip(63408, 69168),
-                "run_1200" to VoiceClip(69368, 75296),
-                "run_1500" to VoiceClip(75496, 81976),
-                "run_1680" to VoiceClip(82176, 88752),
-                "run_1800" to VoiceClip(88952, 95984),
-                "walk_90" to VoiceClip(96184, 102328),
-                "walk_120" to VoiceClip(102528, 108048),
-                "walk_150" to VoiceClip(108248, 114488),
-                "walk_180" to VoiceClip(114688, 120472),
-                "walk_300" to VoiceClip(120672, 126432),
-                "cooldown_300" to VoiceClip(126632, 135584),
-                "finish_10" to VoiceClip(135784, 140872),
-                "finished" to VoiceClip(141072, 146880),
+                "warmup_300" to VoiceClip(0, 9079),
+                "warmup_speed_60" to VoiceClip(9279, 15832),
+                "transition" to VoiceClip(16032, 19057),
+                "one_minute" to VoiceClip(19257, 21305),
+                "run_60" to VoiceClip(21505, 24641),
+                "run_90" to VoiceClip(24841, 28529),
+                "run_180" to VoiceClip(28729, 32398),
+                "run_300" to VoiceClip(32598, 36290),
+                "run_480" to VoiceClip(36490, 40188),
+                "run_600" to VoiceClip(40388, 44123),
+                "run_1200" to VoiceClip(44323, 48151),
+                "run_1500" to VoiceClip(48351, 52511),
+                "run_1680" to VoiceClip(52711, 56898),
+                "run_1800" to VoiceClip(57098, 61643),
+                "walk_90" to VoiceClip(61843, 65537),
+                "walk_120" to VoiceClip(65737, 69260),
+                "walk_150" to VoiceClip(69460, 73307),
+                "walk_180" to VoiceClip(73507, 77134),
+                "walk_300" to VoiceClip(77334, 80977),
+                "cooldown_300" to VoiceClip(81177, 87257),
+                "finish_10" to VoiceClip(87457, 90334),
+                "finished" to VoiceClip(90534, 94527),
             ),
         )
     }

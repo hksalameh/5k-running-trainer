@@ -1,16 +1,20 @@
 #!/usr/bin/env python3
-"""Copy generated voice sprites into Android assets and update their exact offsets."""
+"""Copy Charon (Auditext) and Ali (ElevenLabs) voice sprites into the app.
+
+Only run with validated 22-clip audio manifests produced from user-approved
+voices; previous Taim/Sana sprites are not used.
+"""
 import json
 import shutil
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 COACH = ROOT / "app/src/main/java/com/rakdatak/app/PhoneWorkoutCoach.kt"
-PACK_DIR = ROOT / "voice-lab/voice-pack"
+PACK_DIR = ROOT / "voice-lab"
 ANDROID_ASSETS = ROOT / "app/src/main/assets/voice_packs"
 
 def make_spec(voice: str) -> str:
-    name = f"rakdatak_ar_{voice}_v2"
+    name = f"rakdatak_ar_{voice}_v3"
     manifest = json.loads((PACK_DIR / f"{name}.json").read_text(encoding="utf-8"))
     lines = [
         f"        val {voice.upper()}_PACK = VoicePackSpec(",
@@ -31,9 +35,9 @@ def main() -> None:
     current = COACH.read_text(encoding="utf-8")
     start = current.index("        val MALE_PACK = VoicePackSpec(")
     finish = current.index("\n    }\n}\n\n@Composable", start)
-    replacement = make_spec("male") + "\n\n" + make_spec("female")
+    replacement = make_spec("charon") + "\n\n" + make_spec("ali")
     COACH.write_text(current[:start] + replacement + current[finish:], encoding="utf-8")
-    print("Both offline packs and exact clip positions installed.")
+    print("Charon and Ali offline packs with 22 verified clip offsets each installed.")
 
 if __name__ == "__main__":
     main()

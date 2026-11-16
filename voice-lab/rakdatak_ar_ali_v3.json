@@ -1,0 +1,90 @@
+{
+  "warmup_300": {
+    "startMs": 0,
+    "endMs": 9079
+  },
+  "warmup_speed_60": {
+    "startMs": 9279,
+    "endMs": 15832
+  },
+  "transition": {
+    "startMs": 16032,
+    "endMs": 19057
+  },
+  "one_minute": {
+    "startMs": 19257,
+    "endMs": 21305
+  },
+  "run_60": {
+    "startMs": 21505,
+    "endMs": 24641
+  },
+  "run_90": {
+    "startMs": 24841,
+    "endMs": 28529
+  },
+  "run_180": {
+    "startMs": 28729,
+    "endMs": 32398
+  },
+  "run_300": {
+    "startMs": 32598,
+    "endMs": 36290
+  },
+  "run_480": {
+    "startMs": 36490,
+    "endMs": 40188
+  },
+  "run_600": {
+    "startMs": 40388,
+    "endMs": 44123
+  },
+  "run_1200": {
+    "startMs": 44323,
+    "endMs": 48151
+  },
+  "run_1500": {
+    "startMs": 48351,
+    "endMs": 52511
+  },
+  "run_1680": {
+    "startMs": 52711,
+    "endMs": 56898
+  },
+  "run_1800": {
+    "startMs": 57098,
+    "endMs": 61643
+  },
+  "walk_90": {
+    "startMs": 61843,
+    "endMs": 65537
+  },
+  "walk_120": {
+    "startMs": 65737,
+    "endMs": 69260
+  },
+  "walk_150": {
+    "startMs": 69460,
+    "endMs": 73307
+  },
+  "walk_180": {
+    "startMs": 73507,
+    "endMs": 77134
+  },
+  "walk_300": {
+    "startMs": 77334,
+    "endMs": 80977
+  },
+  "cooldown_300": {
+    "startMs": 81177,
+    "endMs": 87257
+  },
+  "finish_10": {
+    "startMs": 87457,
+    "endMs": 90334
+  },
+  "finished": {
+    "startMs": 90534,
+    "endMs": 94527
+  }
+}
