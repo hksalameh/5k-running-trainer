@@ -57,6 +57,8 @@ fun WorkoutScreen(
     gpsTrackingEnabled: Boolean,
     treadmillMode: Boolean,
     treadmillSpeedKmh: Double,
+    warmupSpeedGuidance: String?,
+    runDistanceMeters: Double,
     onTreadmillSpeedChange: (Double) -> Unit,
     keepScreenOn: Boolean,
     onDistanceChanged: (Double) -> Unit,
@@ -203,6 +205,13 @@ fun WorkoutScreen(
                 )
             }
 
+            Text(
+                text = "مسافة الركض دون المشي: %.2f / 5.00 كم".format(runDistanceMeters / 1_000.0),
+                color = Orange,
+                style = MaterialTheme.typography.bodyMedium,
+                textAlign = TextAlign.Center,
+            )
+
             Spacer(modifier = Modifier.height(12.dp))
             Surface(
                 modifier = Modifier.fillMaxWidth(),
@@ -234,6 +243,14 @@ fun WorkoutScreen(
                         fontWeight = FontWeight.Bold,
                     )
                     if (treadmillMode) {
+                        if (warmupSpeedGuidance != null) {
+                            Text(
+                                text = warmupSpeedGuidance,
+                                color = Orange,
+                                style = MaterialTheme.typography.bodyMedium,
+                                textAlign = TextAlign.Center,
+                            )
+                        }
                         Row(
                             horizontalArrangement = Arrangement.spacedBy(16.dp),
                             verticalAlignment = Alignment.CenterVertically,

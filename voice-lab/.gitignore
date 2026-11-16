@@ -1,0 +1,4 @@
+voice-pack/
+*.mp3
+*.wav
+__pycache__/

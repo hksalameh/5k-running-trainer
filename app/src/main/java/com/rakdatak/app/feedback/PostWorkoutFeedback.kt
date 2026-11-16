@@ -49,6 +49,7 @@ fun PostWorkoutFeedbackScreen(
     planId: String,
     snapshot: WorkoutSessionSnapshot,
     distanceMeters: Double,
+    runDistanceMeters: Double,
     distanceIsEstimated: Boolean,
     longestContinuousRunSeconds: Int,
     onDone: (PerceivedDifficulty, PainLevel, TrainingDecision) -> Unit,
@@ -88,6 +89,14 @@ fun PostWorkoutFeedbackScreen(
                 },
                 color = Gray,
                 style = MaterialTheme.typography.bodyLarge,
+            )
+            Text(
+                text = "مسافة الركض فقط: %.2f كم%s".format(
+                    runDistanceMeters.coerceAtLeast(0.0) / 1_000.0,
+                    if (distanceIsEstimated) " (تقديرية)" else "",
+                ),
+                color = Orange,
+                style = MaterialTheme.typography.bodyMedium,
             )
 
             val averageSpeed = WorkoutDistanceEstimator.averageSpeedKmh(

@@ -42,14 +42,15 @@ private data class VoiceClip(
 
 private data class VoicePackSpec(
     val filename: String,
-    val url: String,
+    val url: String? = null,
+    val assetPath: String? = null,
     val clips: Map<String, VoiceClip>,
 )
 
 /**
  * Arabic workout coach.
  *
- * Primary path: a cached natural neural voice pack, downloaded once and replayed offline.
+ * Primary path: an offline, bundled Arabic (Jordan) neural voice pack.
  * Fallback path: Android TTS if the selected natural pack is not ready.
  */
 class PhoneWorkoutCoach(
@@ -90,6 +91,7 @@ class PhoneWorkoutCoach(
     private var activeUtteranceId: String? = null
     private var activeUtteranceFinished: (() -> Unit)? = null
     private var announcingPhaseIndex = -1
+    private var announcedWarmupSpeedIncrease = false
     private var lastPhaseIndex = -1
     private var oneMinuteCuePhase = -1
     private var tenSecondCuePhase = -1
@@ -226,6 +228,19 @@ class PhoneWorkoutCoach(
         }
 
         if (snapshot.status != WorkoutSessionStatus.RUNNING) return
+
+        if (snapshot.currentPhase.type == WorkoutPhaseType.WARM_UP &&
+            snapshot.phaseElapsedSeconds in 60..65 &&
+            !announcedWarmupSpeedIncrease
+        ) {
+            announcedWarmupSpeedIncrease = true
+            if (soundCuesEnabled) {
+                speakCue(
+                    clipKey = CLIP_WARMUP_SPEED_60,
+                    fallbackText = "خلصت أول دقيقة إحماء. إذا جاهز، ارفع سرعة المشي لثلاثة أو أربعة حسب راحتك.",
+                )
+            }
+        }
 
         if (snapshot.phaseIndex != lastPhaseIndex) {
             val isFirstPhase = lastPhaseIndex == -1
@@ -385,7 +400,13 @@ class PhoneWorkoutCoach(
         voiceExecutor.execute {
             try {
                 if (!voicePackFile.exists() || voicePackFile.length() < 32_000L) {
-                    downloadVoicePack()
+                    if (voicePack.assetPath != null) {
+                        appContext.assets.open(voicePack.assetPath).use { source ->
+                            voicePackFile.outputStream().use { target -> source.copyTo(target) }
+                        }
+                    } else {
+                        downloadVoicePack()
+                    }
                 }
                 if (closed || !voicePackFile.exists()) return@execute
 
@@ -407,10 +428,11 @@ class PhoneWorkoutCoach(
     }
 
     private fun downloadVoicePack() {
+        val downloadUrl = voicePack.url ?: return
         val temporaryFile = File(appContext.filesDir, "${voicePack.filename}.tmp")
         runCatching { temporaryFile.delete() }
 
-        val connection = (URL(voicePack.url).openConnection() as HttpURLConnection).apply {
+        val connection = (URL(downloadUrl).openConnection() as HttpURLConnection).apply {
             connectTimeout = 10_000
             readTimeout = 20_000
             instanceFollowRedirects = true
@@ -481,10 +503,10 @@ class PhoneWorkoutCoach(
 
     private fun clipKeyForPhase(phase: WorkoutPhase): String? = when (phase.type) {
         WorkoutPhaseType.WARM_UP ->
-            if (phase.durationSeconds == 180) CLIP_WARMUP_180 else null
+            if (phase.durationSeconds == 300) CLIP_WARMUP_300 else null
 
         WorkoutPhaseType.COOL_DOWN ->
-            if (phase.durationSeconds == 180) CLIP_COOLDOWN_180 else null
+            if (phase.durationSeconds == 300) CLIP_COOLDOWN_300 else null
 
         WorkoutPhaseType.RUN -> when (phase.durationSeconds) {
             60 -> CLIP_RUN_60
@@ -598,6 +620,7 @@ class PhoneWorkoutCoach(
     private fun resetSessionCues() {
         lastPhaseIndex = -1
         announcingPhaseIndex = -1
+        announcedWarmupSpeedIncrease = false
         oneMinuteCuePhase = -1
         tenSecondCuePhase = -1
         lastFinalBeepSecond = -1
@@ -646,7 +669,8 @@ class PhoneWorkoutCoach(
     private companion object {
         const val ALIGNMENT_LOOKAHEAD_SECONDS = 5
 
-        const val CLIP_WARMUP_180 = "warmup_180"
+        const val CLIP_WARMUP_300 = "warmup_300"
+        const val CLIP_WARMUP_SPEED_60 = "warmup_speed_60"
         const val CLIP_TRANSITION = "transition"
         const val CLIP_ONE_MINUTE = "one_minute"
         const val CLIP_RUN_60 = "run_60"
@@ -664,63 +688,65 @@ class PhoneWorkoutCoach(
         const val CLIP_WALK_150 = "walk_150"
         const val CLIP_WALK_180 = "walk_180"
         const val CLIP_WALK_300 = "walk_300"
-        const val CLIP_COOLDOWN_180 = "cooldown_180"
+        const val CLIP_COOLDOWN_300 = "cooldown_300"
         const val CLIP_FINISH_TEN_SECONDS = "finish_10"
         const val CLIP_FINISHED = "finished"
 
         val MALE_PACK = VoicePackSpec(
-            filename = "rakdatak_ar_male_v1.wav",
-            url = "https://resource2.heygen.ai/text_to_speech/90f75bc626b143ae832bc35280491ae2/02733a92a0db457aadf63b235d2aa457/id=52ab6acc-b736-44f4-89ab-c2386b36f621.wav",
+            filename = "rakdatak_ar_male_v2.wav",
+            assetPath = "voice_packs/rakdatak_ar_male_v2.wav",
             clips = mapOf(
-                CLIP_WARMUP_180 to VoiceClip(250, 3_500),
-                CLIP_TRANSITION to VoiceClip(3_570, 7_360),
-                CLIP_ONE_MINUTE to VoiceClip(7_390, 10_080),
-                CLIP_RUN_60 to VoiceClip(10_050, 12_640),
-                CLIP_RUN_90 to VoiceClip(12_740, 16_260),
-                CLIP_RUN_180 to VoiceClip(16_380, 18_930),
-                CLIP_RUN_300 to VoiceClip(19_030, 21_640),
-                CLIP_RUN_480 to VoiceClip(21_750, 24_370),
-                CLIP_RUN_600 to VoiceClip(24_400, 27_000),
-                CLIP_RUN_1200 to VoiceClip(27_050, 29_600),
-                CLIP_RUN_1500 to VoiceClip(29_610, 32_740),
-                CLIP_RUN_1680 to VoiceClip(32_840, 36_060),
-                CLIP_RUN_1800 to VoiceClip(36_110, 38_980),
-                CLIP_WALK_90 to VoiceClip(39_030, 42_210),
-                CLIP_WALK_120 to VoiceClip(42_220, 44_610),
-                CLIP_WALK_150 to VoiceClip(44_730, 47_980),
-                CLIP_WALK_180 to VoiceClip(48_140, 50_670),
-                CLIP_WALK_300 to VoiceClip(50_790, 53_250),
-                CLIP_COOLDOWN_180 to VoiceClip(53_400, 56_550),
-                CLIP_FINISH_TEN_SECONDS to VoiceClip(56_590, 60_790),
-                CLIP_FINISHED to VoiceClip(60_970, 63_180),
+                "warmup_300" to VoiceClip(0, 11280),
+                "warmup_speed_60" to VoiceClip(11480, 20024),
+                "transition" to VoiceClip(20224, 24496),
+                "one_minute" to VoiceClip(24696, 28512),
+                "run_60" to VoiceClip(28712, 33536),
+                "run_90" to VoiceClip(33736, 39064),
+                "run_180" to VoiceClip(39264, 44352),
+                "run_300" to VoiceClip(44552, 49568),
+                "run_480" to VoiceClip(49768, 54928),
+                "run_600" to VoiceClip(55128, 60120),
+                "run_1200" to VoiceClip(60320, 65480),
+                "run_1500" to VoiceClip(65680, 71200),
+                "run_1680" to VoiceClip(71400, 77088),
+                "run_1800" to VoiceClip(77288, 83336),
+                "walk_90" to VoiceClip(83536, 88912),
+                "walk_120" to VoiceClip(89112, 94152),
+                "walk_150" to VoiceClip(94352, 99848),
+                "walk_180" to VoiceClip(100048, 105184),
+                "walk_300" to VoiceClip(105384, 110448),
+                "cooldown_300" to VoiceClip(110648, 118400),
+                "finish_10" to VoiceClip(118600, 123040),
+                "finished" to VoiceClip(123240, 128256),
             ),
         )
 
         val FEMALE_PACK = VoicePackSpec(
-            filename = "rakdatak_ar_female_v1.wav",
-            url = "https://resource2.heygen.ai/text_to_speech/90f75bc626b143ae832bc35280491ae2/1776ddbd05374fa480e92f0297bbc67e/id=204d91d1-60d4-4948-a616-6697873228ce.wav",
+            filename = "rakdatak_ar_female_v2.wav",
+            assetPath = "voice_packs/rakdatak_ar_female_v2.wav",
             clips = mapOf(
-                CLIP_WARMUP_180 to VoiceClip(220, 3_340),
-                CLIP_TRANSITION to VoiceClip(3_400, 7_160),
-                CLIP_ONE_MINUTE to VoiceClip(7_300, 9_780),
-                CLIP_RUN_60 to VoiceClip(9_780, 12_390),
-                CLIP_RUN_90 to VoiceClip(12_600, 15_720),
-                CLIP_RUN_180 to VoiceClip(15_840, 18_250),
-                CLIP_RUN_300 to VoiceClip(18_400, 20_710),
-                CLIP_RUN_480 to VoiceClip(20_790, 23_100),
-                CLIP_RUN_600 to VoiceClip(23_220, 25_480),
-                CLIP_RUN_1200 to VoiceClip(25_600, 28_020),
-                CLIP_RUN_1500 to VoiceClip(28_070, 30_910),
-                CLIP_RUN_1680 to VoiceClip(31_010, 33_970),
-                CLIP_RUN_1800 to VoiceClip(34_110, 36_510),
-                CLIP_WALK_90 to VoiceClip(36_580, 39_360),
-                CLIP_WALK_120 to VoiceClip(39_410, 41_510),
-                CLIP_WALK_150 to VoiceClip(41_640, 44_830),
-                CLIP_WALK_180 to VoiceClip(44_920, 47_020),
-                CLIP_WALK_300 to VoiceClip(47_080, 49_380),
-                CLIP_COOLDOWN_180 to VoiceClip(49_500, 52_320),
-                CLIP_FINISH_TEN_SECONDS to VoiceClip(52_370, 56_170),
-                CLIP_FINISHED to VoiceClip(56_300, 58_450),
+                "warmup_300" to VoiceClip(0, 13080),
+                "warmup_speed_60" to VoiceClip(13280, 23168),
+                "transition" to VoiceClip(23368, 28384),
+                "one_minute" to VoiceClip(28584, 32976),
+                "run_60" to VoiceClip(33176, 38696),
+                "run_90" to VoiceClip(38896, 45064),
+                "run_180" to VoiceClip(45264, 51096),
+                "run_300" to VoiceClip(51296, 57128),
+                "run_480" to VoiceClip(57328, 63208),
+                "run_600" to VoiceClip(63408, 69168),
+                "run_1200" to VoiceClip(69368, 75296),
+                "run_1500" to VoiceClip(75496, 81976),
+                "run_1680" to VoiceClip(82176, 88752),
+                "run_1800" to VoiceClip(88952, 95984),
+                "walk_90" to VoiceClip(96184, 102328),
+                "walk_120" to VoiceClip(102528, 108048),
+                "walk_150" to VoiceClip(108248, 114488),
+                "walk_180" to VoiceClip(114688, 120472),
+                "walk_300" to VoiceClip(120672, 126432),
+                "cooldown_300" to VoiceClip(126632, 135584),
+                "finish_10" to VoiceClip(135784, 140872),
+                "finished" to VoiceClip(141072, 146880),
             ),
         )
     }

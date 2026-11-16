@@ -85,10 +85,10 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          TAG="phone-v0.4.9"
-          APK="app/build/outputs/apk/debug/app-debug.apk#rakdatak-phone-0.4.9.apk"
+          TAG="phone-v0.5.0"
+          APK="app/build/outputs/apk/debug/app-debug.apk#rakdatak-phone-0.5.0.apk"
           if gh release view "$TAG" >/dev/null 2>&1; then
             gh release upload "$TAG" "$APK" --clobber
           else
-            gh release create "$TAG" "$APK" --target "$GITHUB_SHA" --title "ركضتك - هاتف 0.4.9" --notes "نسخة تجريبية؛ 9 أسابيع، الإحماء والتهدئة 5 دقائق، ووقت المرحلة يبدأ بعد انتهاء التوجيه الصوتي. يُحتفظ بالتقدم المثبت عند التحديث." --prerelease
+            gh release create "$TAG" "$APK" --target "$GITHUB_SHA" --title "ركضتك - هاتف 0.5.0" --notes "معاينة: الهدف ركض 5 كم أو ركض 30 دقيقة، إحماء متدرج من 2 إلى 3.5 كم/س، ومقاطع صوت أردنية تُشغَّل دون إنترنت. الحفظ تلقائي ولا تُحتسب مسافة المشي ضمن هدف الركض. يُرجى تجربة الأصوات قبل الاعتماد النهائي." --prerelease
           fi
