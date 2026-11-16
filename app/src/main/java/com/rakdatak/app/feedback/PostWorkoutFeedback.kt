@@ -31,6 +31,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.rakdatak.core.training.AdaptiveTrainingEngine
+import com.rakdatak.core.training.WorkoutDistanceEstimator
 import com.rakdatak.core.training.WorkoutSessionSnapshot
 import com.rakdatak.core.training.WorkoutSessionStatus
 import com.rakdatak.core.training.model.PainLevel
@@ -87,6 +88,23 @@ fun PostWorkoutFeedbackScreen(
                 },
                 color = Gray,
                 style = MaterialTheme.typography.bodyLarge,
+            )
+
+            val averageSpeed = WorkoutDistanceEstimator.averageSpeedKmh(
+                distanceMeters = distanceMeters,
+                activeSeconds = snapshot.totalElapsedSeconds,
+            )
+            Text(
+                text = if (averageSpeed != null) {
+                    "متوسط السرعة: %.1f كم/س%s".format(
+                        averageSpeed,
+                        if (distanceIsEstimated) " (تقديري)" else "",
+                    )
+                } else {
+                    "متوسط السرعة غير متاح • التمرين محفوظ بدون الحاجة إلى إدخال المسافة"
+                },
+                color = Gray,
+                style = MaterialTheme.typography.bodyMedium,
             )
 
             if (distanceIsEstimated) {

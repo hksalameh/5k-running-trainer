@@ -11,4 +11,12 @@ object WorkoutDistanceEstimator {
         require(activeSeconds >= 0)
         return speedKilometersPerHour * activeSeconds / 3.6
     }
+
+    /** Whole-session average, including warm-up and cool-down but excluding spoken instructions. */
+    fun averageSpeedKmh(distanceMeters: Double, activeSeconds: Int): Double? {
+        if (!distanceMeters.isFinite() || distanceMeters <= 0.0 || activeSeconds <= 0) {
+            return null
+        }
+        return distanceMeters * 3.6 / activeSeconds
+    }
 }
