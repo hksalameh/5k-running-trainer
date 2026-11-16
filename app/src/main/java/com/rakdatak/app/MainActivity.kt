@@ -52,6 +52,7 @@ import com.rakdatak.core.training.BaselinePlanFactory
 import com.rakdatak.core.training.TrainingScheduleEngine
 import com.rakdatak.core.training.WorkoutDistanceEstimator
 import com.rakdatak.core.training.WorkoutSessionEngine
+import com.rakdatak.core.training.WorkoutSessionSnapshot
 import com.rakdatak.core.training.WorkoutSessionStatus
 import com.rakdatak.core.training.model.TrainingAction
 import com.rakdatak.core.training.model.WorkoutPhaseType
@@ -70,6 +71,10 @@ private enum class AppScreen {
     PROFILE,
     SCHEDULE,
 }
+
+/** Derive elapsed phase time from the engine snapshot instead of assuming it is stored. */
+internal val WorkoutSessionSnapshot.phaseElapsedSeconds: Int
+    get() = (currentPhase.durationSeconds - phaseRemainingSeconds).coerceAtLeast(0)
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
